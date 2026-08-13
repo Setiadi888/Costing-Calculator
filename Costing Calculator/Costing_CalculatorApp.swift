@@ -10,8 +10,8 @@ import SwiftUI
 @main
 struct Costing_CalculatorApp: App {
     var body: some Scene {
-        DocumentGroup(newDocument: Costing_CalculatorDocument()) { file in
-            ContentView(document: file.$document)
+        WindowGroup {
+            ContentView()
         }
     }
 }
