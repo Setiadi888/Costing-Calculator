@@ -11,8 +11,18 @@ struct HomeView: View {
     @State private var items: [CostItem] = []
     @State private var path = NavigationPath()
 
+    /// Everything entered by hand, before Miscellaneous.
+    private var subtotal: Double {
+        items.reduce(0) { $0 + $1.subtotal }
+    }
+
+    /// Added on top of every other cost.
+    private var miscellaneous: Double {
+        subtotal * CostRates.miscellaneousRate
+    }
+
     private var grandTotal: Double {
-        items.reduce(0) { $0 + $1.total }
+        subtotal + miscellaneous
     }
 
     private var categoriesInUse: [CostCategory] {
@@ -36,6 +46,12 @@ struct HomeView: View {
                             }
                             .onDelete { delete(category: category, at: $0) }
                         }
+                    }
+
+                    Section("Summary") {
+                        summaryRow("Sub Total", subtotal)
+                        summaryRow("Miscellaneous (7.5%)", miscellaneous)
+                        summaryRow("Grand Total", grandTotal, emphasised: true)
                     }
                 }
             }
@@ -64,7 +80,7 @@ struct HomeView: View {
                         Text("Grand Total")
                             .font(.headline)
                         Spacer()
-                        Text(grandTotal, format: .number.precision(.fractionLength(2)))
+                        Text(grandTotal.rupiah)
                             .font(.headline)
                     }
                     .padding()
@@ -76,15 +92,26 @@ struct HomeView: View {
 
     private func itemRow(_ item: CostItem) -> some View {
         HStack {
-            VStack(alignment: .leading) {
-                Text(item.name)
-                Text("\(item.quantity.formatted()) x \(item.unitCost.formatted())")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(item.displayName)
+                if !item.details.summary.isEmpty {
+                    Text(item.details.summary)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
             }
             Spacer()
-            Text(item.total, format: .number.precision(.fractionLength(2)))
+            Text(item.subtotal.rupiah)
         }
+    }
+
+    private func summaryRow(_ title: String, _ value: Double, emphasised: Bool = false) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value.rupiah)
+        }
+        .font(emphasised ? .headline : .body)
     }
 
     private func delete(category: CostCategory, at offsets: IndexSet) {
