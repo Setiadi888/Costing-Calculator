@@ -9,13 +9,22 @@ struct AddCostItemView: View {
     let category: CostCategory
     let onSave: (CostItem) -> Void
 
-    @State private var name = ""
+    @State private var name: String
+
+    init(category: CostCategory, onSave: @escaping (CostItem) -> Void) {
+        self.category = category
+        self.onSave = onSave
+        // Start from the category name so the field holds real text to edit,
+        // rather than a label beside an empty box.
+        _name = State(initialValue: category.rawValue.capitalized)
+    }
 
     // INJECTION PART
     @State private var weightGrams = ""
     @State private var cycleTime = ""
     @State private var cavities = "1"
     @State private var material: MouldingMaterial = .pp
+    @State private var costPerDay = CostRates.defaultInjectionPerDay
 
     // SPAREPART / PACKAGING
     @State private var unitCost = ""
@@ -32,7 +41,8 @@ struct AddCostItemView: View {
     var body: some View {
         Form {
             Section("Name") {
-                TextField(category.rawValue.capitalized, text: $name)
+                TextField("Name", text: $name)
+                    .labelsHidden()
             }
 
             switch category {
@@ -42,14 +52,8 @@ struct AddCostItemView: View {
             case .spray, .padPrint, .packagingLabourCost, .assemblyLabourCost: flatField
             }
 
-            Section("Sub Total") {
-                HStack {
-                    Text("Cost per pc")
-                    Spacer()
-                    Text(details?.subtotal.rupiah ?? "—")
-                        .font(.headline)
-                        .foregroundStyle(details == nil ? .secondary : .primary)
-                }
+            Section(totalTitle) {
+                totalRow(totalTitle, value: details?.subtotal)
             }
         }
         .formStyle(.grouped)
@@ -65,6 +69,16 @@ struct AddCostItemView: View {
         }
     }
 
+    /// Categories split into sections total those sections up; the rest just
+    /// show the one figure they were given.
+    private var totalTitle: String {
+        switch category {
+        case .injectionPart: return "Total Part Cost"
+        case .sparePart, .packaging: return "Total Cost"
+        default: return "Sub Total"
+        }
+    }
+
     // MARK: - Category fields
 
     private var injectionFields: some View {
@@ -76,27 +90,40 @@ struct AddCostItemView: View {
                         Text("\(material.rawValue) — \(material.ratePerKg.rupiah)/kg").tag(material)
                     }
                 }
+                totalRow("Sub Total", value: materialSubtotal)
             }
             Section {
+                Picker("Cost of Injection / Day", selection: $costPerDay) {
+                    ForEach(CostRates.injectionPerDayOptions, id: \.self) { option in
+                        Text(option.rupiah).tag(option)
+                    }
+                }
                 numberField("Cycle Time (seconds)", text: $cycleTime)
                 numberField("Number of Cavities", text: $cavities)
+                totalRow("Sub Total", value: injectSubtotal)
             } header: {
-                Text("Cycle Time")
+                Text("Inject Cost")
             } footer: {
-                Text("Injection runs at \(CostRates.injectionPerDay.rupiah)/day over \(CostRates.secondsPerDay.compact) seconds.")
+                Text(injectFooter)
             }
         }
     }
 
     private var cartonFields: some View {
-        Section {
-            numberField("Cost of Product (Rp) / pcs", text: $unitCost)
-            numberField("Total pcs / Carton", text: $pcsPerCarton)
-            numberField("Total m³ for Carton", text: $cubicMetres)
-        } header: {
-            Text("Carton")
-        } footer: {
-            Text("Freight is \(CostRates.freightPerCubicMetre.rupiah) per m³, split across the carton.")
+        Group {
+            Section("Product Cost") {
+                numberField("Cost of Product (Rp/Pcs)", text: $unitCost)
+                totalRow("Sub Total", value: productSubtotal)
+            }
+            Section {
+                numberField("Total pcs / Carton", text: $pcsPerCarton)
+                numberField("Total m³ of Carton", text: $cubicMetres)
+                totalRow("Sub Total", value: importSubtotal)
+            } header: {
+                Text("Import Cost")
+            } footer: {
+                Text("Freight is \(CostRates.freightPerCubicMetre.rupiah) per m³, split across the carton.")
+            }
         }
     }
 
@@ -113,6 +140,73 @@ struct AddCostItemView: View {
         }
     }
 
+    /// A running total. Shows a dash until its own inputs are filled in.
+    private func totalRow(_ title: String, value: Double?) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(value?.rupiah ?? "—")
+                .foregroundStyle(value == nil ? .secondary : .primary)
+        }
+        .font(.headline)
+    }
+
+    /// Material half, available as soon as a weight is entered.
+    private var materialSubtotal: Double? {
+        guard let weight = parse(weightGrams) else { return nil }
+        return InjectionBreakdown(
+            weightGrams: weight,
+            cycleTimeSeconds: 0,
+            cavities: 0,
+            material: material,
+            costPerDay: costPerDay
+        ).materialCost
+    }
+
+    /// Product half, available as soon as a unit cost is entered.
+    private var productSubtotal: Double? {
+        guard let cost = parse(unitCost) else { return nil }
+        return CartonBreakdown(unitCost: cost, pcsPerCarton: 0, cubicMetres: 0).productCost
+    }
+
+    /// Freight half, available once the carton's pieces and volume are entered.
+    private var importSubtotal: Double? {
+        guard let pcs = parse(pcsPerCarton), pcs > 0,
+              let volume = parse(cubicMetres)
+        else { return nil }
+        return CartonBreakdown(unitCost: 0, pcsPerCarton: pcs, cubicMetres: volume).importCost
+    }
+
+    /// Shows the working, so the sub total can be checked by eye.
+    private var injectFooter: String {
+        guard let breakdown = injectionInputs else {
+            return "\(CostRates.secondsPerDay.compact) s ÷ cycle time × cavities = pcs / day."
+        }
+        return """
+        \(CostRates.secondsPerDay.compact) ÷ \(breakdown.cycleTimeSeconds.compact) \
+        × \(breakdown.cavities.compact) = \(breakdown.piecesPerDay.compact) pcs / day.
+        """
+    }
+
+    /// The machine-side inputs, once the cycle and cavities are entered.
+    private var injectionInputs: InjectionBreakdown? {
+        guard let cycle = parse(cycleTime), cycle > 0,
+              let cavityCount = parse(cavities), cavityCount > 0
+        else { return nil }
+        return InjectionBreakdown(
+            weightGrams: parse(weightGrams) ?? 0,
+            cycleTimeSeconds: cycle,
+            cavities: cavityCount,
+            material: material,
+            costPerDay: costPerDay
+        )
+    }
+
+    /// Machine half, available once the cycle and cavities are entered.
+    private var injectSubtotal: Double? {
+        injectionInputs?.injectCost
+    }
+
     private func numberField(_ title: String, text: Binding<String>) -> some View {
         TextField(title, text: text)
             #if os(iOS)
@@ -127,14 +221,15 @@ struct AddCostItemView: View {
         switch category {
         case .injectionPart:
             guard let weight = parse(weightGrams),
-                  let cycle = parse(cycleTime),
+                  let cycle = parse(cycleTime), cycle > 0,
                   let cavityCount = parse(cavities), cavityCount > 0
             else { return nil }
             return .injection(
                 weightGrams: weight,
                 cycleTimeSeconds: cycle,
                 cavities: cavityCount,
-                material: material
+                material: material,
+                costPerDay: costPerDay
             )
 
         case .sparePart, .packaging:

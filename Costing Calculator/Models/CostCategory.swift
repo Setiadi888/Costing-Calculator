@@ -7,8 +7,11 @@ import Foundation
 
 /// Fixed rates the costing sheet is built on.
 enum CostRates {
-    /// Cost of running an injection machine for one day.
-    static let injectionPerDay: Double = 1_500_000
+    /// Cost of running an injection machine for one day, picked per item.
+    static let injectionPerDayOptions: [Double] = [
+        1_500_000, 1_600_000, 1_700_000, 1_800_000, 2_000_000
+    ]
+    static let defaultInjectionPerDay: Double = 1_500_000
     static let secondsPerDay: Double = 86_400
     /// Freight charged per cubic metre of carton volume.
     static let freightPerCubicMetre: Double = 3_500_000
