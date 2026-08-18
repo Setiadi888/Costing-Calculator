@@ -13,10 +13,17 @@ struct InjectionBreakdown {
     var cavities: Double
     var material: MouldingMaterial
     var costPerDay: Double
+    /// Rate per kilo. Defaults to the material's own rate, but can be given
+    /// in RMB with an exchange rate instead.
+    var materialPrice: PriceInput
+
+    var ratePerKg: Double {
+        materialPrice.value
+    }
 
     /// Weight converted to kilos at the material's rate.
     var materialCost: Double {
-        (weightGrams / 1_000) * material.ratePerKg
+        (weightGrams / 1_000) * ratePerKg
     }
 
     /// Cycles the machine completes in a day.
@@ -44,14 +51,15 @@ struct InjectionBreakdown {
 /// The two halves of a cartoned item's cost, kept separate so the form can
 /// show a sub total under each section.
 struct CartonBreakdown {
-    var unitCost: Double
+    /// Cost of one piece, in Rupiah or converted from RMB.
+    var unitPrice: PriceInput
     var pcsPerCarton: Double
     var cubicMetres: Double
     var ratePerCubicMetre: Double
 
     /// What the piece itself costs.
     var productCost: Double {
-        unitCost
+        unitPrice.value
     }
 
     /// The piece's share of the carton's freight.
@@ -73,14 +81,16 @@ enum CostDetails: Codable, Hashable {
         cycleTimeSeconds: Double,
         cavities: Double,
         material: MouldingMaterial,
-        costPerDay: Double
+        costPerDay: Double,
+        materialPrice: PriceInput
     )
-    /// Unit cost plus the carton's share of freight. SPAREPART and PACKAGING.
+    /// Unit cost plus the carton's share of freight. IMPORT, of any kind.
     case cartoned(
-        unitCost: Double,
+        unitPrice: PriceInput,
         pcsPerCarton: Double,
         cubicMetres: Double,
-        ratePerCubicMetre: Double
+        ratePerCubicMetre: Double,
+        kind: ImportKind
     )
     /// A table's cost spread over the pieces it holds. UV.
     case perTable(costPerTable: Double, pcsPerTable: Double)
@@ -90,18 +100,19 @@ enum CostDetails: Codable, Hashable {
     /// Cost of one piece, in Rupiah.
     var subtotal: Double {
         switch self {
-        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay):
+        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
             return InjectionBreakdown(
                 weightGrams: weightGrams,
                 cycleTimeSeconds: cycleTimeSeconds,
                 cavities: cavities,
                 material: material,
-                costPerDay: costPerDay
+                costPerDay: costPerDay,
+                materialPrice: materialPrice
             ).totalPartCost
 
-        case let .cartoned(unitCost, pcsPerCarton, cubicMetres, ratePerCubicMetre):
+        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, _):
             return CartonBreakdown(
-                unitCost: unitCost,
+                unitPrice: unitPrice,
                 pcsPerCarton: pcsPerCarton,
                 cubicMetres: cubicMetres,
                 ratePerCubicMetre: ratePerCubicMetre
@@ -119,10 +130,10 @@ enum CostDetails: Codable, Hashable {
     /// Short description of the inputs, shown under the item name.
     var summary: String {
         switch self {
-        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay):
-            return "\(weightGrams.compact) g \(material.rawValue) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
-        case let .cartoned(unitCost, pcsPerCarton, cubicMetres, ratePerCubicMetre):
-            return "\(unitCost.rupiah)/pc · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
+        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
+            return "\(weightGrams.compact) g \(material.rawValue)\(materialPrice.origin) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
+        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, _):
+            return "\(unitPrice.value.rupiah)/pc\(unitPrice.origin) · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
         case let .perTable(costPerTable, pcsPerTable):
             return "\(costPerTable.rupiah)/table · \(pcsPerTable.compact) pcs/table"
         case .flat:
@@ -138,6 +149,19 @@ struct CostItem: Identifiable, Codable, Hashable {
     var details: CostDetails
 
     var subtotal: Double { details.subtotal }
+
+    /// What an imported item is, when it is one.
+    var importKind: ImportKind? {
+        if case let .cartoned(_, _, _, _, kind) = details { return kind }
+        return nil
+    }
+
+    /// The heading this item is listed under. Imports keep their kind visible
+    /// so a sparepart is never confused with packaging in the totals.
+    var groupTitle: String {
+        guard let importKind else { return category.rawValue }
+        return "\(category.rawValue) · \(importKind.rawValue)"
+    }
 
     var displayName: String {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
@@ -165,5 +189,11 @@ extension Double {
     /// Plain number with trailing zeroes dropped.
     var compact: String {
         formatted(.number.precision(.fractionLength(0...2)))
+    }
+
+    /// Digits only, for prefilling a field. Grouping separators are left out
+    /// because "3.500.000" does not read back as a number.
+    var plainDigits: String {
+        formatted(.number.precision(.fractionLength(0...2)).grouping(.never))
     }
 }

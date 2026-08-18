@@ -88,7 +88,8 @@ struct FinalTotalView: View {
                             cycleTimeSeconds: 20,
                             cavities: 10,
                             material: .pp,
-                            costPerDay: 1_500_000
+                            costPerDay: 1_500_000,
+                            materialPrice: PriceInput(rupiah: 28_000)
                         )
                     )
                 ]

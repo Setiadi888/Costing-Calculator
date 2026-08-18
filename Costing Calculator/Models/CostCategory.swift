@@ -34,10 +34,19 @@ enum MouldingMaterial: String, CaseIterable, Identifiable, Codable {
     }
 }
 
-enum CostCategory: String, CaseIterable, Identifiable, Hashable, Codable {
-    case injectionPart = "INJECTION PART"
+/// What an imported item actually is. Sparepart, packaging and product are
+/// costed the same way, so they share one category and are told apart by this.
+enum ImportKind: String, CaseIterable, Identifiable, Hashable, Codable {
     case sparePart = "SPAREPART"
     case packaging = "PACKAGING"
+    case product = "PRODUCT"
+
+    var id: String { rawValue }
+}
+
+enum CostCategory: String, CaseIterable, Identifiable, Hashable, Codable {
+    case injectionPart = "INJECTION PART"
+    case importItem = "IMPORT"
     case uv = "UV"
     case spray = "SPRAY"
     case padPrint = "PAD PRINT"

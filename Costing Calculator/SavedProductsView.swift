@@ -19,7 +19,7 @@ struct SavedProductsView: View {
                 )
             } else {
                 ForEach(products) { product in
-                    NavigationLink(value: product) {
+                    NavigationLink(value: product.id) {
                         HStack {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(product.name)
@@ -47,29 +47,60 @@ struct SavedProductsView: View {
     }
 }
 
-/// The full breakdown of one saved costing.
+/// The full breakdown of one saved costing, still open to changes.
 struct SavedProductDetailView: View {
-    let product: SavedProduct
+    @Binding var product: SavedProduct
 
     var body: some View {
         List {
-            ForEach(product.items.categoriesInUse) { category in
-                Section(category.rawValue) {
-                    ForEach(product.items.filter { $0.category == category }) { item in
-                        CostItemRow(item: item)
+            Section("Name") {
+                TextField("Name", text: $product.name)
+                    .labelsHidden()
+            }
+
+            ForEach(product.items.groupTitles, id: \.self) { title in
+                Section(title) {
+                    ForEach(product.items.inGroup(title)) { item in
+                        NavigationLink(
+                            value: ItemFormRoute(
+                                target: .product(product.id),
+                                category: item.category,
+                                itemID: item.id
+                            )
+                        ) {
+                            CostItemRow(item: item)
+                        }
                     }
+                    .onDelete { delete(group: title, at: $0) }
                 }
             }
 
             Section("Summary") {
+                Toggle("Add Lain-lain (7.5%)", isOn: $product.includesMiscellaneous)
                 CostSummaryRows(
                     subtotal: product.subtotal,
                     miscellaneous: product.miscellaneous,
-                    grandTotal: product.grandTotal
+                    grandTotal: product.grandTotal,
+                    includesMiscellaneous: product.includesMiscellaneous
                 )
             }
         }
         .navigationTitle(product.name)
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink(
+                    value: ChooseCategoryRoute(target: .product(product.id))
+                ) {
+                    Label("Add Item", systemImage: "plus")
+                }
+            }
+        }
+    }
+
+    private func delete(group title: String, at offsets: IndexSet) {
+        let itemsInGroup = product.items.inGroup(title)
+        let idsToDelete = Set(offsets.map { itemsInGroup[$0].id })
+        product.items.removeAll { idsToDelete.contains($0.id) }
     }
 }
 
@@ -98,10 +129,13 @@ struct CostSummaryRows: View {
     let subtotal: Double
     let miscellaneous: Double
     let grandTotal: Double
+    /// Dims the lain-lain line when it is switched off.
+    var includesMiscellaneous = true
 
     var body: some View {
         row("Sub Total", subtotal)
-        row("Miscellaneous (7.5%)", miscellaneous)
+        row("Lain-lain (7.5%)", miscellaneous)
+            .foregroundStyle(includesMiscellaneous ? .primary : .secondary)
         row("Grand Total", grandTotal, emphasised: true)
     }
 
@@ -129,7 +163,8 @@ struct CostSummaryRows: View {
                             cycleTimeSeconds: 20,
                             cavities: 10,
                             material: .pp,
-                            costPerDay: 1_500_000
+                            costPerDay: 1_500_000,
+                            materialPrice: PriceInput(rupiah: 28_000)
                         )
                     )
                 ]

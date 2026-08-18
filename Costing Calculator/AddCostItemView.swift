@@ -7,37 +7,104 @@ import SwiftUI
 
 struct AddCostItemView: View {
     let category: CostCategory
+    /// The item being changed, or nil when adding a new one.
+    let existing: CostItem?
     let onSave: (CostItem) -> Void
 
     @State private var name: String
 
-    init(category: CostCategory, onSave: @escaping (CostItem) -> Void) {
-        self.category = category
-        self.onSave = onSave
-        // Start from the category name so the field holds real text to edit,
-        // rather than a label beside an empty box.
-        _name = State(initialValue: category.rawValue.capitalized)
-    }
-
     // INJECTION PART
-    @State private var weightGrams = ""
-    @State private var cycleTime = ""
-    @State private var cavities = "1"
-    @State private var material: MouldingMaterial = .pp
-    @State private var costPerDay = CostRates.defaultInjectionPerDay
+    @State private var weightGrams: String
+    @State private var cycleTime: String
+    @State private var cavities: String
+    @State private var material: MouldingMaterial
+    @State private var costPerDay: Double
+    @State private var materialRmb: String
+    @State private var materialExchangeRate: String
 
-    // SPAREPART / PACKAGING
-    @State private var unitCost = ""
-    @State private var pcsPerCarton = ""
-    @State private var cubicMetres = ""
-    @State private var ratePerCubicMetre = CostRates.defaultFreightPerCubicMetre.compact
+    // IMPORT
+    @State private var importKind: ImportKind
+    @State private var unitCost: String
+    @State private var unitRmb: String
+    @State private var unitExchangeRate: String
+    @State private var pcsPerCarton: String
+    @State private var cubicMetres: String
+    @State private var ratePerCubicMetre: String
 
     // UV
-    @State private var costPerTable = ""
-    @State private var pcsPerTable = ""
+    @State private var costPerTable: String
+    @State private var pcsPerTable: String
 
     // SPRAY / PAD PRINT / LABOUR
-    @State private var amount = ""
+    @State private var amount: String
+
+    init(
+        category: CostCategory,
+        existing: CostItem? = nil,
+        onSave: @escaping (CostItem) -> Void
+    ) {
+        self.category = category
+        self.existing = existing
+        self.onSave = onSave
+
+        // Start from the category name so the field holds real text to edit,
+        // rather than a label beside an empty box.
+        _name = State(initialValue: existing?.name ?? category.rawValue.capitalized)
+
+        // Defaults for a new item; overwritten below when editing.
+        var weight = "", cycle = "", cavityCount = "1"
+        var mouldingMaterial = MouldingMaterial.pp
+        var perDay = CostRates.defaultInjectionPerDay
+        var cost = "", pcsCarton = "", volume = ""
+        var rate = CostRates.defaultFreightPerCubicMetre.plainDigits
+        var tableCost = "", tablePcs = "", flatAmount = ""
+        var materialYuan = "", materialRate = "", unitYuan = "", unitRate = ""
+        var kind = ImportKind.sparePart
+
+        switch existing?.details {
+        case let .injection(w, c, cav, m, day, price):
+            weight = w.plainDigits
+            cycle = c.plainDigits
+            cavityCount = cav.plainDigits
+            mouldingMaterial = m
+            perDay = day
+            if price.rmb > 0 { materialYuan = price.rmb.plainDigits }
+            if price.exchangeRate > 0 { materialRate = price.exchangeRate.plainDigits }
+        case let .cartoned(price, pcs, m3, perM3, existingKind):
+            cost = price.rupiah.plainDigits
+            if price.rmb > 0 { unitYuan = price.rmb.plainDigits }
+            if price.exchangeRate > 0 { unitRate = price.exchangeRate.plainDigits }
+            pcsCarton = pcs.plainDigits
+            volume = m3.plainDigits
+            rate = perM3.plainDigits
+            kind = existingKind
+        case let .perTable(perTable, pcs):
+            tableCost = perTable.plainDigits
+            tablePcs = pcs.plainDigits
+        case let .flat(value):
+            flatAmount = value.plainDigits
+        case nil:
+            break
+        }
+
+        _weightGrams = State(initialValue: weight)
+        _cycleTime = State(initialValue: cycle)
+        _cavities = State(initialValue: cavityCount)
+        _material = State(initialValue: mouldingMaterial)
+        _costPerDay = State(initialValue: perDay)
+        _materialRmb = State(initialValue: materialYuan)
+        _materialExchangeRate = State(initialValue: materialRate)
+        _importKind = State(initialValue: kind)
+        _unitCost = State(initialValue: cost)
+        _unitRmb = State(initialValue: unitYuan)
+        _unitExchangeRate = State(initialValue: unitRate)
+        _pcsPerCarton = State(initialValue: pcsCarton)
+        _cubicMetres = State(initialValue: volume)
+        _ratePerCubicMetre = State(initialValue: rate)
+        _costPerTable = State(initialValue: tableCost)
+        _pcsPerTable = State(initialValue: tablePcs)
+        _amount = State(initialValue: flatAmount)
+    }
 
     var body: some View {
         Form {
@@ -48,7 +115,7 @@ struct AddCostItemView: View {
 
             switch category {
             case .injectionPart: injectionFields
-            case .sparePart, .packaging: cartonFields
+            case .importItem: cartonFields
             case .uv: uvFields
             case .spray, .padPrint, .packagingLabourCost, .assemblyLabourCost: flatField
             }
@@ -63,7 +130,16 @@ struct AddCostItemView: View {
             ToolbarItem(placement: .confirmationAction) {
                 Button("Save") {
                     guard let details else { return }
-                    onSave(CostItem(category: category, name: name, details: details))
+                    // Keep the id when editing so this replaces the item
+                    // rather than adding a second copy of it.
+                    onSave(
+                        CostItem(
+                            id: existing?.id ?? UUID(),
+                            category: category,
+                            name: name,
+                            details: details
+                        )
+                    )
                 }
                 .disabled(details == nil)
             }
@@ -75,7 +151,7 @@ struct AddCostItemView: View {
     private var totalTitle: String {
         switch category {
         case .injectionPart: return "Total Part Cost"
-        case .sparePart, .packaging: return "Total Cost"
+        case .importItem: return "Total Cost"
         default: return "Sub Total"
         }
     }
@@ -84,14 +160,21 @@ struct AddCostItemView: View {
 
     private var injectionFields: some View {
         Group {
-            Section("Material") {
+            Section {
                 numberField("Weight (gram)", text: $weightGrams)
                 Picker("Type of Material", selection: $material) {
                     ForEach(MouldingMaterial.allCases) { material in
                         Text("\(material.rawValue) — \(material.ratePerKg.rupiah)/kg").tag(material)
                     }
                 }
+                numberField("Price in RMB / kg", text: $materialRmb)
+                numberField("Exchange Rate (Rp / RMB)", text: $materialExchangeRate)
+                convertedRow("Converted (Rp / kg)", price: materialPrice)
                 totalRow("Sub Total", value: materialSubtotal)
+            } header: {
+                Text("Material")
+            } footer: {
+                Text(priceFooter(materialPrice, unit: "kg"))
             }
             Section {
                 Picker("Cost of Injection / Day", selection: $costPerDay) {
@@ -112,9 +195,29 @@ struct AddCostItemView: View {
 
     private var cartonFields: some View {
         Group {
-            Section("Product Cost") {
+            Section {
+                Picker("Type", selection: $importKind) {
+                    ForEach(ImportKind.allCases) { kind in
+                        Text(kind.rawValue.capitalized).tag(kind)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+            } header: {
+                Text("Import Type")
+            } footer: {
+                Text("Kept with the item so it stays identifiable in the totals.")
+            }
+            Section {
                 numberField("Cost of Product (Rp/Pcs)", text: $unitCost)
+                numberField("Price in RMB / Pcs", text: $unitRmb)
+                numberField("Exchange Rate (Rp / RMB)", text: $unitExchangeRate)
+                convertedRow("Converted (Rp / Pcs)", price: unitPrice)
                 totalRow("Sub Total", value: productSubtotal)
+            } header: {
+                Text("Product Cost")
+            } footer: {
+                Text(priceFooter(unitPrice, unit: "pc"))
             }
             Section {
                 numberField("Total pcs / Carton", text: $pcsPerCarton)
@@ -161,15 +264,53 @@ struct AddCostItemView: View {
             cycleTimeSeconds: 0,
             cavities: 0,
             material: material,
-            costPerDay: costPerDay
+            costPerDay: costPerDay,
+            materialPrice: materialPrice
         ).materialCost
     }
 
-    /// Product half, available as soon as a unit cost is entered.
+    /// The rate per kilo: the material's own, unless an RMB price overrides it.
+    private var materialPrice: PriceInput {
+        PriceInput(
+            rupiah: material.ratePerKg,
+            rmb: parse(materialRmb) ?? 0,
+            exchangeRate: parse(materialExchangeRate) ?? 0
+        )
+    }
+
+    /// The cost per piece, in Rupiah or converted from RMB.
+    private var unitPrice: PriceInput {
+        PriceInput(
+            rupiah: parse(unitCost) ?? 0,
+            rmb: parse(unitRmb) ?? 0,
+            exchangeRate: parse(unitExchangeRate) ?? 0
+        )
+    }
+
+    /// A converted price, shown only once there is one to show.
+    private func convertedRow(_ title: String, price: PriceInput) -> some View {
+        HStack {
+            Text(title)
+            Spacer()
+            Text(price.converted?.rupiah ?? "—")
+                .foregroundStyle(price.isConverted ? .primary : .secondary)
+        }
+    }
+
+    /// Says which of the two prices the sub total is actually using.
+    private func priceFooter(_ price: PriceInput, unit: String) -> String {
+        if price.isConverted {
+            return "Using the RMB price: ¥\(price.rmb.compact) × \(price.exchangeRate.compact) = \(price.value.rupiah) per \(unit)."
+        }
+        return "Fill in both RMB and an exchange rate to price in Yuan instead."
+    }
+
+    /// Product half, available as soon as a price is entered either way.
     private var productSubtotal: Double? {
-        guard let cost = parse(unitCost) else { return nil }
+        let price = unitPrice
+        guard price.isConverted || parse(unitCost) != nil else { return nil }
         return CartonBreakdown(
-            unitCost: cost,
+            unitPrice: price,
             pcsPerCarton: 0,
             cubicMetres: 0,
             ratePerCubicMetre: 0
@@ -183,7 +324,7 @@ struct AddCostItemView: View {
               let rate = parse(ratePerCubicMetre)
         else { return nil }
         return CartonBreakdown(
-            unitCost: 0,
+            unitPrice: PriceInput(),
             pcsPerCarton: pcs,
             cubicMetres: volume,
             ratePerCubicMetre: rate
@@ -211,7 +352,8 @@ struct AddCostItemView: View {
             cycleTimeSeconds: cycle,
             cavities: cavityCount,
             material: material,
-            costPerDay: costPerDay
+            costPerDay: costPerDay,
+            materialPrice: materialPrice
         )
     }
 
@@ -242,20 +384,24 @@ struct AddCostItemView: View {
                 cycleTimeSeconds: cycle,
                 cavities: cavityCount,
                 material: material,
-                costPerDay: costPerDay
+                costPerDay: costPerDay,
+                materialPrice: materialPrice
             )
 
-        case .sparePart, .packaging:
-            guard let cost = parse(unitCost),
+        case .importItem:
+            // Either way of giving the price will do, so long as one is there.
+            let price = unitPrice
+            guard price.isConverted || parse(unitCost) != nil,
                   let pcs = parse(pcsPerCarton), pcs > 0,
                   let volume = parse(cubicMetres),
                   let rate = parse(ratePerCubicMetre)
             else { return nil }
             return .cartoned(
-                unitCost: cost,
+                unitPrice: price,
                 pcsPerCarton: pcs,
                 cubicMetres: volume,
-                ratePerCubicMetre: rate
+                ratePerCubicMetre: rate,
+                kind: importKind
             )
 
         case .uv:
@@ -270,12 +416,18 @@ struct AddCostItemView: View {
         }
     }
 
-    /// Accepts either separator, so "1,5" and "1.5" both read as 1.5.
+    /// Reads a typed number. A separator that repeats is grouping, so
+    /// "3.500.000" is three and a half million; a single one is a decimal
+    /// point, so "1,5" and "1.5" both read as 1.5.
     private func parse(_ text: String) -> Double? {
-        let cleaned = text
-            .trimmingCharacters(in: .whitespaces)
-            .replacingOccurrences(of: ",", with: ".")
-        return cleaned.isEmpty ? nil : Double(cleaned)
+        var cleaned = text.trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return nil }
+
+        for separator in [".", ","] where cleaned.components(separatedBy: separator).count > 2 {
+            cleaned = cleaned.replacingOccurrences(of: separator, with: "")
+        }
+        cleaned = cleaned.replacingOccurrences(of: ",", with: ".")
+        return Double(cleaned)
     }
 }
 

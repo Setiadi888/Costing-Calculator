@@ -5,7 +5,6 @@
 
 import SwiftUI
 
-private struct AddItemRoute: Hashable {}
 private struct SavedProductsRoute: Hashable {}
 
 struct HomeView: View {
@@ -18,8 +17,15 @@ struct HomeView: View {
     @State private var isNamingProduct = false
     @State private var draftName = ""
 
+    /// Whether the 7.5% lain-lain is added to the costing being worked on.
+    @State private var includesMiscellaneous = true
+
     private var subtotal: Double { items.subtotal }
-    private var miscellaneous: Double { subtotal * CostRates.miscellaneousRate }
+
+    private var miscellaneous: Double {
+        includesMiscellaneous ? subtotal * CostRates.miscellaneousRate : 0
+    }
+
     private var grandTotal: Double { subtotal + miscellaneous }
 
     var body: some View {
@@ -32,20 +38,30 @@ struct HomeView: View {
                         description: Text("Tap + to add a costing item.")
                     )
                 } else {
-                    ForEach(items.categoriesInUse) { category in
-                        Section(category.rawValue) {
-                            ForEach(items.filter { $0.category == category }) { item in
-                                CostItemRow(item: item)
+                    ForEach(items.groupTitles, id: \.self) { title in
+                        Section(title) {
+                            ForEach(items.inGroup(title)) { item in
+                                NavigationLink(
+                                    value: ItemFormRoute(
+                                        target: .draft,
+                                        category: item.category,
+                                        itemID: item.id
+                                    )
+                                ) {
+                                    CostItemRow(item: item)
+                                }
                             }
-                            .onDelete { delete(category: category, at: $0) }
+                            .onDelete { delete(group: title, at: $0) }
                         }
                     }
 
                     Section("Summary") {
+                        Toggle("Add Lain-lain (7.5%)", isOn: $includesMiscellaneous)
                         CostSummaryRows(
                             subtotal: subtotal,
                             miscellaneous: miscellaneous,
-                            grandTotal: grandTotal
+                            grandTotal: grandTotal,
+                            includesMiscellaneous: includesMiscellaneous
                         )
                     }
                 }
@@ -61,26 +77,30 @@ struct HomeView: View {
                 }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
-                        path.append(AddItemRoute())
+                        path.append(ChooseCategoryRoute(target: .draft))
                     } label: {
                         Label("Add Item", systemImage: "plus")
                     }
                 }
             }
-            .navigationDestination(for: AddItemRoute.self) { _ in
-                CategorySelectionView()
+            .navigationDestination(for: ChooseCategoryRoute.self) { route in
+                CategorySelectionView(target: route.target)
             }
-            .navigationDestination(for: CostCategory.self) { category in
-                AddCostItemView(category: category) { item in
-                    items.append(item)
-                    path = NavigationPath()
+            .navigationDestination(for: ItemFormRoute.self) { route in
+                AddCostItemView(
+                    category: route.category,
+                    existing: item(for: route)
+                ) { item in
+                    apply(item, route: route)
                 }
             }
             .navigationDestination(for: SavedProductsRoute.self) { _ in
                 SavedProductsView(products: savedProducts)
             }
-            .navigationDestination(for: SavedProduct.self) { product in
-                SavedProductDetailView(product: product)
+            .navigationDestination(for: SavedProduct.ID.self) { id in
+                if let index = savedProducts.firstIndex(where: { $0.id == id }) {
+                    SavedProductDetailView(product: $savedProducts[index])
+                }
             }
             .navigationDestination(for: FinalTotalRoute.self) { _ in
                 FinalTotalView(products: savedProducts)
@@ -115,23 +135,64 @@ struct HomeView: View {
         }
     }
 
+    /// The item a form is editing, or nil when the form is adding a new one.
+    private func item(for route: ItemFormRoute) -> CostItem? {
+        guard let itemID = route.itemID else { return nil }
+        switch route.target {
+        case .draft:
+            return items.first { $0.id == itemID }
+        case let .product(productID):
+            return savedProducts
+                .first { $0.id == productID }?
+                .items.first { $0.id == itemID }
+        }
+    }
+
+    /// Puts a finished item where it belongs, replacing the old one when
+    /// editing, then steps back to the list it came from.
+    private func apply(_ item: CostItem, route: ItemFormRoute) {
+        switch route.target {
+        case .draft:
+            store(item, in: &items)
+        case let .product(productID):
+            if let index = savedProducts.firstIndex(where: { $0.id == productID }) {
+                store(item, in: &savedProducts[index].items)
+            }
+        }
+
+        // Adding pushed a category picker as well as the form; editing only
+        // pushed the form.
+        let pushed = route.itemID == nil ? 2 : 1
+        path.removeLast(min(pushed, path.count))
+    }
+
+    private func store(_ item: CostItem, in list: inout [CostItem]) {
+        if let index = list.firstIndex(where: { $0.id == item.id }) {
+            list[index] = item
+        } else {
+            list.append(item)
+        }
+    }
+
     /// Finishes the costing off: keeps it as a saved product, clears the
     /// working list, and shows where it went.
     private func saveProduct() {
         let trimmed = draftName.trimmingCharacters(in: .whitespaces)
         let product = SavedProduct(
             name: trimmed.isEmpty ? "Product \(savedProducts.count + 1)" : trimmed,
-            items: items
+            items: items,
+            includesMiscellaneous: includesMiscellaneous
         )
         savedProducts.append(product)
         items.removeAll()
+        includesMiscellaneous = true
         path = NavigationPath()
         path.append(SavedProductsRoute())
     }
 
-    private func delete(category: CostCategory, at offsets: IndexSet) {
-        let itemsInCategory = items.filter { $0.category == category }
-        let idsToDelete = Set(offsets.map { itemsInCategory[$0].id })
+    private func delete(group title: String, at offsets: IndexSet) {
+        let itemsInGroup = items.inGroup(title)
+        let idsToDelete = Set(offsets.map { itemsInGroup[$0].id })
         items.removeAll { idsToDelete.contains($0.id) }
     }
 }
