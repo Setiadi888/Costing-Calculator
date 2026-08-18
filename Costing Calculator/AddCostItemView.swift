@@ -30,6 +30,7 @@ struct AddCostItemView: View {
     @State private var unitCost = ""
     @State private var pcsPerCarton = ""
     @State private var cubicMetres = ""
+    @State private var ratePerCubicMetre = CostRates.defaultFreightPerCubicMetre.compact
 
     // UV
     @State private var costPerTable = ""
@@ -118,11 +119,12 @@ struct AddCostItemView: View {
             Section {
                 numberField("Total pcs / Carton", text: $pcsPerCarton)
                 numberField("Total m³ of Carton", text: $cubicMetres)
+                numberField("Cost / m³ (Rp)", text: $ratePerCubicMetre)
                 totalRow("Sub Total", value: importSubtotal)
             } header: {
                 Text("Import Cost")
             } footer: {
-                Text("Freight is \(CostRates.freightPerCubicMetre.rupiah) per m³, split across the carton.")
+                Text("Freight is split across the carton's pieces.")
             }
         }
     }
@@ -166,15 +168,26 @@ struct AddCostItemView: View {
     /// Product half, available as soon as a unit cost is entered.
     private var productSubtotal: Double? {
         guard let cost = parse(unitCost) else { return nil }
-        return CartonBreakdown(unitCost: cost, pcsPerCarton: 0, cubicMetres: 0).productCost
+        return CartonBreakdown(
+            unitCost: cost,
+            pcsPerCarton: 0,
+            cubicMetres: 0,
+            ratePerCubicMetre: 0
+        ).productCost
     }
 
-    /// Freight half, available once the carton's pieces and volume are entered.
+    /// Freight half, available once the carton's pieces, volume and rate are in.
     private var importSubtotal: Double? {
         guard let pcs = parse(pcsPerCarton), pcs > 0,
-              let volume = parse(cubicMetres)
+              let volume = parse(cubicMetres),
+              let rate = parse(ratePerCubicMetre)
         else { return nil }
-        return CartonBreakdown(unitCost: 0, pcsPerCarton: pcs, cubicMetres: volume).importCost
+        return CartonBreakdown(
+            unitCost: 0,
+            pcsPerCarton: pcs,
+            cubicMetres: volume,
+            ratePerCubicMetre: rate
+        ).importCost
     }
 
     /// Shows the working, so the sub total can be checked by eye.
@@ -235,9 +248,15 @@ struct AddCostItemView: View {
         case .sparePart, .packaging:
             guard let cost = parse(unitCost),
                   let pcs = parse(pcsPerCarton), pcs > 0,
-                  let volume = parse(cubicMetres)
+                  let volume = parse(cubicMetres),
+                  let rate = parse(ratePerCubicMetre)
             else { return nil }
-            return .cartoned(unitCost: cost, pcsPerCarton: pcs, cubicMetres: volume)
+            return .cartoned(
+                unitCost: cost,
+                pcsPerCarton: pcs,
+                cubicMetres: volume,
+                ratePerCubicMetre: rate
+            )
 
         case .uv:
             guard let cost = parse(costPerTable),

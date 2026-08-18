@@ -6,28 +6,21 @@
 import SwiftUI
 
 private struct AddItemRoute: Hashable {}
+private struct SavedProductsRoute: Hashable {}
 
 struct HomeView: View {
+    /// Items saved into the costing being worked on. This is the first save.
     @State private var items: [CostItem] = []
+    /// Costings finished off by saving their grand total. The second save.
+    @State private var savedProducts: [SavedProduct] = []
+
     @State private var path = NavigationPath()
+    @State private var isNamingProduct = false
+    @State private var draftName = ""
 
-    /// Everything entered by hand, before Miscellaneous.
-    private var subtotal: Double {
-        items.reduce(0) { $0 + $1.subtotal }
-    }
-
-    /// Added on top of every other cost.
-    private var miscellaneous: Double {
-        subtotal * CostRates.miscellaneousRate
-    }
-
-    private var grandTotal: Double {
-        subtotal + miscellaneous
-    }
-
-    private var categoriesInUse: [CostCategory] {
-        CostCategory.allCases.filter { category in items.contains { $0.category == category } }
-    }
+    private var subtotal: Double { items.subtotal }
+    private var miscellaneous: Double { subtotal * CostRates.miscellaneousRate }
+    private var grandTotal: Double { subtotal + miscellaneous }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -39,24 +32,33 @@ struct HomeView: View {
                         description: Text("Tap + to add a costing item.")
                     )
                 } else {
-                    ForEach(categoriesInUse) { category in
+                    ForEach(items.categoriesInUse) { category in
                         Section(category.rawValue) {
                             ForEach(items.filter { $0.category == category }) { item in
-                                itemRow(item)
+                                CostItemRow(item: item)
                             }
                             .onDelete { delete(category: category, at: $0) }
                         }
                     }
 
                     Section("Summary") {
-                        summaryRow("Sub Total", subtotal)
-                        summaryRow("Miscellaneous (7.5%)", miscellaneous)
-                        summaryRow("Grand Total", grandTotal, emphasised: true)
+                        CostSummaryRows(
+                            subtotal: subtotal,
+                            miscellaneous: miscellaneous,
+                            grandTotal: grandTotal
+                        )
                     }
                 }
             }
             .navigationTitle("Costing Calculator")
             .toolbar {
+                ToolbarItem(placement: .navigation) {
+                    Button {
+                        path.append(SavedProductsRoute())
+                    } label: {
+                        Label("Saved Products", systemImage: "tray.full")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         path.append(AddItemRoute())
@@ -74,44 +76,54 @@ struct HomeView: View {
                     path = NavigationPath()
                 }
             }
+            .navigationDestination(for: SavedProductsRoute.self) { _ in
+                SavedProductsView(products: savedProducts)
+            }
+            .navigationDestination(for: SavedProduct.self) { product in
+                SavedProductDetailView(product: product)
+            }
             .safeAreaInset(edge: .bottom) {
                 if !items.isEmpty {
                     HStack {
-                        Text("Grand Total")
-                            .font(.headline)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("Grand Total")
+                                .font(.headline)
+                            Text(grandTotal.rupiah)
+                                .font(.headline)
+                        }
                         Spacer()
-                        Text(grandTotal.rupiah)
-                            .font(.headline)
+                        Button("Save Product") {
+                            draftName = "Product \(savedProducts.count + 1)"
+                            isNamingProduct = true
+                        }
+                        .buttonStyle(.borderedProminent)
                     }
                     .padding()
                     .background(.bar)
                 }
             }
-        }
-    }
-
-    private func itemRow(_ item: CostItem) -> some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(item.displayName)
-                if !item.details.summary.isEmpty {
-                    Text(item.details.summary)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
+            .alert("Save Product", isPresented: $isNamingProduct) {
+                TextField("Product name", text: $draftName)
+                Button("Cancel", role: .cancel) {}
+                Button("Save") { saveProduct() }
+            } message: {
+                Text("Grand total \(grandTotal.rupiah)")
             }
-            Spacer()
-            Text(item.subtotal.rupiah)
         }
     }
 
-    private func summaryRow(_ title: String, _ value: Double, emphasised: Bool = false) -> some View {
-        HStack {
-            Text(title)
-            Spacer()
-            Text(value.rupiah)
-        }
-        .font(emphasised ? .headline : .body)
+    /// Finishes the costing off: keeps it as a saved product, clears the
+    /// working list, and shows where it went.
+    private func saveProduct() {
+        let trimmed = draftName.trimmingCharacters(in: .whitespaces)
+        let product = SavedProduct(
+            name: trimmed.isEmpty ? "Product \(savedProducts.count + 1)" : trimmed,
+            items: items
+        )
+        savedProducts.append(product)
+        items.removeAll()
+        path = NavigationPath()
+        path.append(SavedProductsRoute())
     }
 
     private func delete(category: CostCategory, at offsets: IndexSet) {

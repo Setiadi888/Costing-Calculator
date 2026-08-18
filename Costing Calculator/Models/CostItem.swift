@@ -47,6 +47,7 @@ struct CartonBreakdown {
     var unitCost: Double
     var pcsPerCarton: Double
     var cubicMetres: Double
+    var ratePerCubicMetre: Double
 
     /// What the piece itself costs.
     var productCost: Double {
@@ -56,7 +57,7 @@ struct CartonBreakdown {
     /// The piece's share of the carton's freight.
     var importCost: Double {
         guard pcsPerCarton > 0 else { return 0 }
-        return cubicMetres * CostRates.freightPerCubicMetre / pcsPerCarton
+        return cubicMetres * ratePerCubicMetre / pcsPerCarton
     }
 
     var totalCost: Double {
@@ -75,7 +76,12 @@ enum CostDetails: Codable, Hashable {
         costPerDay: Double
     )
     /// Unit cost plus the carton's share of freight. SPAREPART and PACKAGING.
-    case cartoned(unitCost: Double, pcsPerCarton: Double, cubicMetres: Double)
+    case cartoned(
+        unitCost: Double,
+        pcsPerCarton: Double,
+        cubicMetres: Double,
+        ratePerCubicMetre: Double
+    )
     /// A table's cost spread over the pieces it holds. UV.
     case perTable(costPerTable: Double, pcsPerTable: Double)
     /// A figure entered directly. SPRAY, PAD PRINT and both labour costs.
@@ -93,11 +99,12 @@ enum CostDetails: Codable, Hashable {
                 costPerDay: costPerDay
             ).totalPartCost
 
-        case let .cartoned(unitCost, pcsPerCarton, cubicMetres):
+        case let .cartoned(unitCost, pcsPerCarton, cubicMetres, ratePerCubicMetre):
             return CartonBreakdown(
                 unitCost: unitCost,
                 pcsPerCarton: pcsPerCarton,
-                cubicMetres: cubicMetres
+                cubicMetres: cubicMetres,
+                ratePerCubicMetre: ratePerCubicMetre
             ).totalCost
 
         case let .perTable(costPerTable, pcsPerTable):
@@ -114,8 +121,8 @@ enum CostDetails: Codable, Hashable {
         switch self {
         case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay):
             return "\(weightGrams.compact) g \(material.rawValue) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
-        case let .cartoned(unitCost, pcsPerCarton, cubicMetres):
-            return "\(unitCost.rupiah)/pc · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³"
+        case let .cartoned(unitCost, pcsPerCarton, cubicMetres, ratePerCubicMetre):
+            return "\(unitCost.rupiah)/pc · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
         case let .perTable(costPerTable, pcsPerTable):
             return "\(costPerTable.rupiah)/table · \(pcsPerTable.compact) pcs/table"
         case .flat:
@@ -124,7 +131,7 @@ enum CostDetails: Codable, Hashable {
     }
 }
 
-struct CostItem: Identifiable, Codable {
+struct CostItem: Identifiable, Codable, Hashable {
     let id: UUID
     var category: CostCategory
     var name: String

@@ -13,8 +13,8 @@ enum CostRates {
     ]
     static let defaultInjectionPerDay: Double = 1_500_000
     static let secondsPerDay: Double = 86_400
-    /// Freight charged per cubic metre of carton volume.
-    static let freightPerCubicMetre: Double = 3_500_000
+    /// Freight charged per cubic metre of carton volume, editable per item.
+    static let defaultFreightPerCubicMetre: Double = 3_500_000
     /// Miscellaneous is added on top of every other cost.
     static let miscellaneousRate: Double = 0.075
 }
