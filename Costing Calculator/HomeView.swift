@@ -82,6 +82,9 @@ struct HomeView: View {
             .navigationDestination(for: SavedProduct.self) { product in
                 SavedProductDetailView(product: product)
             }
+            .navigationDestination(for: FinalTotalRoute.self) { _ in
+                FinalTotalView(products: savedProducts)
+            }
             .safeAreaInset(edge: .bottom) {
                 if !items.isEmpty {
                     HStack {

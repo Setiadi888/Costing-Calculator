@@ -36,6 +36,14 @@ struct SavedProductsView: View {
             }
         }
         .navigationTitle("Saved Products")
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                NavigationLink(value: FinalTotalRoute()) {
+                    Label("Final Total", systemImage: "sum")
+                }
+                .disabled(products.isEmpty)
+            }
+        }
     }
 }
 
