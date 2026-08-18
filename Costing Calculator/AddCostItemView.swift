@@ -12,6 +12,8 @@ struct AddCostItemView: View {
     let onSave: (CostItem) -> Void
 
     @State private var name: String
+    /// The decimal pad has no return key, so iPhone needs a way out of it.
+    @FocusState private var isTyping: Bool
 
     // INJECTION PART
     @State private var weightGrams: String
@@ -111,6 +113,7 @@ struct AddCostItemView: View {
             Section("Name") {
                 TextField("Name", text: $name)
                     .labelsHidden()
+                    .focused($isTyping)
             }
 
             switch category {
@@ -143,6 +146,12 @@ struct AddCostItemView: View {
                 }
                 .disabled(details == nil)
             }
+            #if os(iOS)
+            ToolbarItemGroup(placement: .keyboard) {
+                Spacer()
+                Button("Done") { isTyping = false }
+            }
+            #endif
         }
     }
 
@@ -362,11 +371,19 @@ struct AddCostItemView: View {
         injectionInputs?.injectCost
     }
 
+    /// A labelled number field. The label is kept alongside the field rather
+    /// than used as a placeholder, so it stays readable once something has
+    /// been typed — on iPhone a placeholder disappears the moment you do.
     private func numberField(_ title: String, text: Binding<String>) -> some View {
-        TextField(title, text: text)
-            #if os(iOS)
-            .keyboardType(.decimalPad)
-            #endif
+        LabeledContent(title) {
+            TextField(title, text: text)
+                .multilineTextAlignment(.trailing)
+                .labelsHidden()
+                .focused($isTyping)
+                #if os(iOS)
+                .keyboardType(.decimalPad)
+                #endif
+        }
     }
 
     // MARK: - Input
