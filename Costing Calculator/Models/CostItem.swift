@@ -132,7 +132,7 @@ enum CostDetails: Codable, Hashable {
     var summary: String {
         switch self {
         case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
-            return "\(weightGrams.compact) g \(material.rawValue)\(materialPrice.origin) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
+            return "\(weightGrams.compact) g \(material.rawValue) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
         case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, _):
             return "\(unitPrice.value.rupiah)/pc\(unitPrice.origin) · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
         case let .perTable(costPerTable, pcsPerTable):

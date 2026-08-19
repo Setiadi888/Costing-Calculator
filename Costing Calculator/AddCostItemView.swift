@@ -24,8 +24,6 @@ struct AddCostItemView: View {
     /// The rate per kilo in Rupiah, entered by hand. Starts from the
     /// material's standing rate where it has one.
     @State private var materialRupiah: String
-    @State private var materialRmb: String
-    @State private var materialExchangeRate: String
 
     // IMPORT
     @State private var importKind: ImportKind
@@ -63,7 +61,7 @@ struct AddCostItemView: View {
         var cost = "", pcsCarton = "", volume = ""
         var rate = CostRates.defaultFreightPerCubicMetre.plainDigits
         var tableCost = "", tablePcs = "", flatAmount = ""
-        var materialYuan = "", materialRate = "", unitYuan = "", unitRate = ""
+        var unitYuan = "", unitRate = ""
         var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
         var kind = ImportKind.sparePart
 
@@ -74,11 +72,10 @@ struct AddCostItemView: View {
             cavityCount = cav.plainDigits
             mouldingMaterial = m
             perDay = day
-            // Costings saved before the rate was editable stored the
-            // material's own rate here, so they reopen with it filled in.
-            materialKg = price.rupiah > 0 ? price.rupiah.plainDigits : ""
-            if price.rmb > 0 { materialYuan = price.rmb.plainDigits }
-            if price.exchangeRate > 0 { materialRate = price.exchangeRate.plainDigits }
+            // price.value rather than price.rupiah: a costing saved when
+            // the rate could still be given in Yuan reopens at the rate it
+            // was actually worked out from.
+            materialKg = price.value > 0 ? price.value.plainDigits : ""
         case let .cartoned(price, pcs, m3, perM3, existingKind):
             cost = price.rupiah.plainDigits
             if price.rmb > 0 { unitYuan = price.rmb.plainDigits }
@@ -102,8 +99,6 @@ struct AddCostItemView: View {
         _material = State(initialValue: mouldingMaterial)
         _materialRupiah = State(initialValue: materialKg)
         _costPerDay = State(initialValue: perDay)
-        _materialRmb = State(initialValue: materialYuan)
-        _materialExchangeRate = State(initialValue: materialRate)
         _importKind = State(initialValue: kind)
         _unitCost = State(initialValue: cost)
         _unitRmb = State(initialValue: unitYuan)
@@ -190,14 +185,11 @@ struct AddCostItemView: View {
                     materialRupiah = chosen.defaultRatePerKg?.plainDigits ?? ""
                 }
                 numberField("Price (Rp / kg)", text: $materialRupiah)
-                numberField("Price in RMB / kg", text: $materialRmb)
-                numberField("Exchange Rate (Rp / RMB)", text: $materialExchangeRate)
-                convertedRow("Converted (Rp / kg)", price: materialPrice)
                 totalRow("Sub Total", value: materialSubtotal)
             } header: {
                 Text("Material")
             } footer: {
-                Text(priceFooter(materialPrice, unit: "kg"))
+                Text(materialFooter)
             }
             Section {
                 Picker("Cost of Injection / Day", selection: $costPerDay) {
@@ -292,13 +284,20 @@ struct AddCostItemView: View {
         ).materialCost
     }
 
-    /// The rate per kilo as entered, unless an RMB price overrides it.
+    /// The rate per kilo, as entered. Material is priced in Rupiah only.
     private var materialPrice: PriceInput {
-        PriceInput(
-            rupiah: parse(materialRupiah) ?? 0,
-            rmb: parse(materialRmb) ?? 0,
-            exchangeRate: parse(materialExchangeRate) ?? 0
-        )
+        PriceInput(rupiah: parse(materialRupiah) ?? 0)
+    }
+
+    /// Shows the working, so the sub total can be checked by eye.
+    private var materialFooter: String {
+        guard let weight = parse(weightGrams), materialPrice.value > 0 else {
+            return "Weight in kilos × the rate per kilo = material cost."
+        }
+        return """
+        \(weight.compact) g ÷ 1.000 × \(materialPrice.value.rupiah) \
+        = \((weight / 1_000 * materialPrice.value).rupiah).
+        """
     }
 
     /// The cost per piece, in Rupiah or converted from RMB.
