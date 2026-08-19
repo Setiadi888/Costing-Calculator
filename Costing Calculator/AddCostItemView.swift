@@ -21,6 +21,9 @@ struct AddCostItemView: View {
     @State private var cavities: String
     @State private var material: MouldingMaterial
     @State private var costPerDay: Double
+    /// The rate per kilo in Rupiah, entered by hand. Starts from the
+    /// material's standing rate where it has one.
+    @State private var materialRupiah: String
     @State private var materialRmb: String
     @State private var materialExchangeRate: String
 
@@ -61,6 +64,7 @@ struct AddCostItemView: View {
         var rate = CostRates.defaultFreightPerCubicMetre.plainDigits
         var tableCost = "", tablePcs = "", flatAmount = ""
         var materialYuan = "", materialRate = "", unitYuan = "", unitRate = ""
+        var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
         var kind = ImportKind.sparePart
 
         switch existing?.details {
@@ -70,6 +74,9 @@ struct AddCostItemView: View {
             cavityCount = cav.plainDigits
             mouldingMaterial = m
             perDay = day
+            // Costings saved before the rate was editable stored the
+            // material's own rate here, so they reopen with it filled in.
+            materialKg = price.rupiah > 0 ? price.rupiah.plainDigits : ""
             if price.rmb > 0 { materialYuan = price.rmb.plainDigits }
             if price.exchangeRate > 0 { materialRate = price.exchangeRate.plainDigits }
         case let .cartoned(price, pcs, m3, perM3, existingKind):
@@ -93,6 +100,7 @@ struct AddCostItemView: View {
         _cycleTime = State(initialValue: cycle)
         _cavities = State(initialValue: cavityCount)
         _material = State(initialValue: mouldingMaterial)
+        _materialRupiah = State(initialValue: materialKg)
         _costPerDay = State(initialValue: perDay)
         _materialRmb = State(initialValue: materialYuan)
         _materialExchangeRate = State(initialValue: materialRate)
@@ -172,10 +180,16 @@ struct AddCostItemView: View {
             Section {
                 numberField("Weight (gram)", text: $weightGrams)
                 Picker("Type of Material", selection: $material) {
-                    ForEach(MouldingMaterial.allCases) { material in
-                        Text("\(material.rawValue) — \(material.ratePerKg.rupiah)/kg").tag(material)
+                    ForEach(MouldingMaterial.allCases) { option in
+                        Text(option.pickerLabel).tag(option)
                     }
                 }
+                .onChange(of: material) { _, chosen in
+                    // A different material is a different price, so start
+                    // again from whatever that one is worth.
+                    materialRupiah = chosen.defaultRatePerKg?.plainDigits ?? ""
+                }
+                numberField("Price (Rp / kg)", text: $materialRupiah)
                 numberField("Price in RMB / kg", text: $materialRmb)
                 numberField("Exchange Rate (Rp / RMB)", text: $materialExchangeRate)
                 convertedRow("Converted (Rp / kg)", price: materialPrice)
@@ -267,7 +281,7 @@ struct AddCostItemView: View {
 
     /// Material half, available as soon as a weight is entered.
     private var materialSubtotal: Double? {
-        guard let weight = parse(weightGrams) else { return nil }
+        guard let weight = parse(weightGrams), materialPrice.value > 0 else { return nil }
         return InjectionBreakdown(
             weightGrams: weight,
             cycleTimeSeconds: 0,
@@ -278,10 +292,10 @@ struct AddCostItemView: View {
         ).materialCost
     }
 
-    /// The rate per kilo: the material's own, unless an RMB price overrides it.
+    /// The rate per kilo as entered, unless an RMB price overrides it.
     private var materialPrice: PriceInput {
         PriceInput(
-            rupiah: material.ratePerKg,
+            rupiah: parse(materialRupiah) ?? 0,
             rmb: parse(materialRmb) ?? 0,
             exchangeRate: parse(materialExchangeRate) ?? 0
         )
@@ -393,6 +407,7 @@ struct AddCostItemView: View {
         switch category {
         case .injectionPart:
             guard let weight = parse(weightGrams),
+                  materialPrice.value > 0,
                   let cycle = parse(cycleTime), cycle > 0,
                   let cavityCount = parse(cavities), cavityCount > 0
             else { return nil }

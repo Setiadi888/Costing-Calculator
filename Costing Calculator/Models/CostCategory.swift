@@ -22,15 +22,28 @@ enum CostRates {
 enum MouldingMaterial: String, CaseIterable, Identifiable, Codable {
     case pp = "PP"
     case abs = "ABS"
+    case asResin = "AS"
+    case ps = "PS"
+    case pvc = "PVC"
 
     var id: String { rawValue }
 
-    /// Material price per kilogram.
-    var ratePerKg: Double {
+    /// The rate the form starts from, for the materials that have a standing
+    /// one. The rest are priced by hand: their price is the thing that moves,
+    /// and a stale default costs more than an empty field does.
+    var defaultRatePerKg: Double? {
         switch self {
         case .pp: return 28_000
         case .abs: return 30_000
+        case .asResin, .ps, .pvc: return nil
         }
+    }
+
+    /// How it reads in the picker: with its standing rate where it has one,
+    /// plain where the rate has to be entered.
+    var pickerLabel: String {
+        guard let rate = defaultRatePerKg else { return rawValue }
+        return "\(rawValue) — \(rate.rupiah)/kg"
     }
 }
 

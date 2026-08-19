@@ -13,8 +13,9 @@ struct InjectionBreakdown {
     var cavities: Double
     var material: MouldingMaterial
     var costPerDay: Double
-    /// Rate per kilo. Defaults to the material's own rate, but can be given
-    /// in RMB with an exchange rate instead.
+    /// Rate per kilo as entered on the form, starting from the material's
+    /// standing rate where it has one. Can be given in RMB with an exchange
+    /// rate instead.
     var materialPrice: PriceInput
 
     var ratePerKg: Double {
