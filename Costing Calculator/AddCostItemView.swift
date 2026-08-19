@@ -181,7 +181,7 @@ struct AddCostItemView: View {
                 numberField("Weight (gram)", text: $weightGrams)
                 Picker("Type of Material", selection: $material) {
                     ForEach(MouldingMaterial.allCases) { option in
-                        Text(option.pickerLabel).tag(option)
+                        Text(option.rawValue).tag(option)
                     }
                 }
                 .onChange(of: material) { _, chosen in

@@ -38,13 +38,6 @@ enum MouldingMaterial: String, CaseIterable, Identifiable, Codable {
         case .asResin, .ps, .pvc: return nil
         }
     }
-
-    /// How it reads in the picker: with its standing rate where it has one,
-    /// plain where the rate has to be entered.
-    var pickerLabel: String {
-        guard let rate = defaultRatePerKg else { return rawValue }
-        return "\(rawValue) — \(rate.rupiah)/kg"
-    }
 }
 
 /// What an imported item actually is. Sparepart, packaging and product are
