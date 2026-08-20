@@ -17,6 +17,8 @@ struct SavedProduct: Identifiable, Codable, Hashable {
     var includesMiscellaneous: Bool
     /// Divides the grand total to give a selling price. Nil until one is set.
     var sellingDivider: Double?
+    /// Name of the product's photo in ProductImageStore, if one was added.
+    var imageFileName: String?
 
     init(
         id: UUID = UUID(),
@@ -24,7 +26,8 @@ struct SavedProduct: Identifiable, Codable, Hashable {
         items: [CostItem],
         savedAt: Date = .now,
         includesMiscellaneous: Bool = true,
-        sellingDivider: Double? = nil
+        sellingDivider: Double? = nil,
+        imageFileName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -32,6 +35,7 @@ struct SavedProduct: Identifiable, Codable, Hashable {
         self.savedAt = savedAt
         self.includesMiscellaneous = includesMiscellaneous
         self.sellingDivider = sellingDivider
+        self.imageFileName = imageFileName
     }
 
     var subtotal: Double { items.subtotal }

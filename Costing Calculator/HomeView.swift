@@ -108,7 +108,7 @@ struct HomeView: View {
                 }
             }
             .navigationDestination(for: SavedProductsRoute.self) { _ in
-                SavedProductsView(products: savedProducts)
+                SavedProductsView(products: $savedProducts)
             }
             .navigationDestination(for: SavedProduct.ID.self) { id in
                 if let index = savedProducts.firstIndex(where: { $0.id == id }) {

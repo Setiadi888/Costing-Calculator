@@ -7,7 +7,7 @@ import SwiftUI
 
 /// Every costing that has been saved from the grand total.
 struct SavedProductsView: View {
-    let products: [SavedProduct]
+    @Binding var products: [SavedProduct]
 
     var body: some View {
         List {
@@ -18,8 +18,9 @@ struct SavedProductsView: View {
                     description: Text("Save a grand total to keep a costing here.")
                 )
             } else {
-                ForEach(products) { product in
+                ForEach($products) { $product in
                     HStack(spacing: 10) {
+                        ProductThumbnail(product: $product)
                         NavigationLink(value: product.id) {
                             HStack {
                                 VStack(alignment: .leading, spacing: 2) {
@@ -166,7 +167,7 @@ struct CostSummaryRows: View {
 
 #Preview {
     NavigationStack {
-        SavedProductsView(products: [
+        SavedProductsView(products: .constant([
             SavedProduct(
                 name: "Product 1",
                 items: [
@@ -185,6 +186,6 @@ struct CostSummaryRows: View {
                     )
                 ]
             )
-        ])
+        ]))
     }
 }
