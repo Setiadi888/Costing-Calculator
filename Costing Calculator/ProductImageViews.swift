@@ -5,6 +5,7 @@
 
 import SwiftUI
 import PhotosUI
+import UIKit
 
 /// The small photo at the head of a saved costing. Empty, it opens the photo
 /// library; filled, it opens the photo.
