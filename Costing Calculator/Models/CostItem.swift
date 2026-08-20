@@ -57,6 +57,11 @@ struct CartonBreakdown {
     var pcsPerCarton: Double
     var cubicMetres: Double
     var ratePerCubicMetre: Double
+    /// Scales the total up, then back down. Both sit at 1 when the total is
+    /// to be left alone, and anything at or below zero is read as 1 rather
+    /// than costing the item at nothing.
+    var multiplier: Double = 1
+    var divider: Double = 1
 
     /// What the piece itself costs.
     var productCost: Double {
@@ -69,8 +74,16 @@ struct CartonBreakdown {
         return cubicMetres * ratePerCubicMetre / pcsPerCarton
     }
 
+    /// The piece and its freight, before scaling.
     var totalCost: Double {
         productCost + importCost
+    }
+
+    /// What the item is actually costed at, once scaled.
+    var finalTotalCost: Double {
+        let up = multiplier > 0 ? multiplier : 1
+        let down = divider > 0 ? divider : 1
+        return totalCost * up / down
     }
 }
 
@@ -91,6 +104,8 @@ enum CostDetails: Codable, Hashable {
         pcsPerCarton: Double,
         cubicMetres: Double,
         ratePerCubicMetre: Double,
+        multiplier: Double,
+        divider: Double,
         kind: ImportKind
     )
     /// A table's cost spread over the pieces it holds. UV.
@@ -111,13 +126,15 @@ enum CostDetails: Codable, Hashable {
                 materialPrice: materialPrice
             ).totalPartCost
 
-        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, _):
+        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, multiplier, divider, _):
             return CartonBreakdown(
                 unitPrice: unitPrice,
                 pcsPerCarton: pcsPerCarton,
                 cubicMetres: cubicMetres,
-                ratePerCubicMetre: ratePerCubicMetre
-            ).totalCost
+                ratePerCubicMetre: ratePerCubicMetre,
+                multiplier: multiplier,
+                divider: divider
+            ).finalTotalCost
 
         case let .perTable(costPerTable, pcsPerTable):
             guard pcsPerTable > 0 else { return 0 }
@@ -133,8 +150,11 @@ enum CostDetails: Codable, Hashable {
         switch self {
         case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
             return "\(weightGrams.compact) g \(material.rawValue) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
-        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, _):
-            return "\(unitPrice.value.rupiah)/pc\(unitPrice.origin) · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
+        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, multiplier, divider, _):
+            let carton = "\(unitPrice.value.rupiah)/pc\(unitPrice.origin) · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
+            // Only worth saying when it actually changes the figure.
+            guard multiplier != 1 || divider != 1 else { return carton }
+            return carton + " · ×\(multiplier.compact) ÷\(divider.compact)"
         case let .perTable(costPerTable, pcsPerTable):
             return "\(costPerTable.rupiah)/table · \(pcsPerTable.compact) pcs/table"
         case .flat:
@@ -153,7 +173,7 @@ struct CostItem: Identifiable, Codable, Hashable {
 
     /// What an imported item is, when it is one.
     var importKind: ImportKind? {
-        if case let .cartoned(_, _, _, _, kind) = details { return kind }
+        if case let .cartoned(_, _, _, _, _, _, kind) = details { return kind }
         return nil
     }
 

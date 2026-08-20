@@ -33,6 +33,9 @@ struct AddCostItemView: View {
     @State private var pcsPerCarton: String
     @State private var cubicMetres: String
     @State private var ratePerCubicMetre: String
+    /// Scale the total by. Both sit at 1 until something is typed.
+    @State private var multiplier: String
+    @State private var divider: String
 
     // UV
     @State private var costPerTable: String
@@ -61,6 +64,7 @@ struct AddCostItemView: View {
         var cost = "", pcsCarton = "", volume = ""
         var rate = CostRates.defaultFreightPerCubicMetre.plainDigits
         var tableCost = "", tablePcs = "", flatAmount = ""
+        var multiply = "1", divide = "1"
         var unitYuan = "", unitRate = ""
         var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
         var kind = ImportKind.sparePart
@@ -76,13 +80,15 @@ struct AddCostItemView: View {
             // the rate could still be given in Yuan reopens at the rate it
             // was actually worked out from.
             materialKg = price.value > 0 ? price.value.plainDigits : ""
-        case let .cartoned(price, pcs, m3, perM3, existingKind):
+        case let .cartoned(price, pcs, m3, perM3, mult, div, existingKind):
             cost = price.rupiah.plainDigits
             if price.rmb > 0 { unitYuan = price.rmb.plainDigits }
             if price.exchangeRate > 0 { unitRate = price.exchangeRate.plainDigits }
             pcsCarton = pcs.plainDigits
             volume = m3.plainDigits
             rate = perM3.plainDigits
+            multiply = mult.plainDigits
+            divide = div.plainDigits
             kind = existingKind
         case let .perTable(perTable, pcs):
             tableCost = perTable.plainDigits
@@ -106,6 +112,8 @@ struct AddCostItemView: View {
         _pcsPerCarton = State(initialValue: pcsCarton)
         _cubicMetres = State(initialValue: volume)
         _ratePerCubicMetre = State(initialValue: rate)
+        _multiplier = State(initialValue: multiply)
+        _divider = State(initialValue: divide)
         _costPerTable = State(initialValue: tableCost)
         _pcsPerTable = State(initialValue: tablePcs)
         _amount = State(initialValue: flatAmount)
@@ -126,8 +134,21 @@ struct AddCostItemView: View {
             case .spray, .padPrint, .packagingLabourCost, .assemblyLabourCost: flatField
             }
 
-            Section(totalTitle) {
-                totalRow(totalTitle, value: details?.subtotal)
+            if category == .importItem {
+                Section {
+                    totalRow("Total Cost", value: cartonTotal)
+                    numberField("Multiplier (×)", text: $multiplier)
+                    numberField("Divider (÷)", text: $divider)
+                    totalRow("Final Total Cost", value: details?.subtotal)
+                } header: {
+                    Text("Total Cost")
+                } footer: {
+                    Text(adjustmentFooter)
+                }
+            } else {
+                Section(totalTitle) {
+                    totalRow(totalTitle, value: details?.subtotal)
+                }
             }
         }
         .formStyle(.grouped)
@@ -353,6 +374,28 @@ struct AddCostItemView: View {
         ).importCost
     }
 
+    /// The piece and its freight added together, before scaling.
+    private var cartonTotal: Double? {
+        guard let product = productSubtotal, let freight = importSubtotal else { return nil }
+        return product + freight
+    }
+
+    /// A scale factor as typed. Blank, zero or nonsense leaves the total be,
+    /// rather than costing the item at nothing.
+    private func factor(_ text: String) -> Double {
+        guard let value = parse(text), value > 0 else { return 1 }
+        return value
+    }
+
+    /// Shows the working, so the final total can be checked by eye.
+    private var adjustmentFooter: String {
+        guard let total = cartonTotal else {
+            return "The total is multiplied, then divided. Leave both at 1 to keep it as it is."
+        }
+        let up = factor(multiplier), down = factor(divider)
+        return "\(total.rupiah) × \(up.compact) ÷ \(down.compact) = \((total * up / down).rupiah)."
+    }
+
     /// Shows the working, so the sub total can be checked by eye.
     private var injectFooter: String {
         guard let breakdown = injectionInputs else {
@@ -432,6 +475,8 @@ struct AddCostItemView: View {
                 pcsPerCarton: pcs,
                 cubicMetres: volume,
                 ratePerCubicMetre: rate,
+                multiplier: factor(multiplier),
+                divider: factor(divider),
                 kind: importKind
             )
 
