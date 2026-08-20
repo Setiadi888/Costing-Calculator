@@ -41,7 +41,11 @@ struct AddCostItemView: View {
     @State private var costPerTable: String
     @State private var pcsPerTable: String
 
-    // SPRAY / PAD PRINT / LABOUR
+    // PACKAGING LABOUR COST
+    @State private var packagingPerCarton: String
+    @State private var packagingPcs: String
+
+    // SPRAY / PAD PRINT / ASSEMBLY LABOUR
     @State private var amount: String
 
     init(
@@ -64,6 +68,7 @@ struct AddCostItemView: View {
         var cost = "", pcsCarton = "", volume = ""
         var rate = CostRates.defaultFreightPerCubicMetre.plainDigits
         var tableCost = "", tablePcs = "", flatAmount = ""
+        var packCost = "", packPcs = ""
         var multiply = "1", divide = "1"
         var unitYuan = "", unitRate = ""
         var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
@@ -93,8 +98,18 @@ struct AddCostItemView: View {
         case let .perTable(perTable, pcs):
             tableCost = perTable.plainDigits
             tablePcs = pcs.plainDigits
+        case let .perCarton(perCarton, pcs):
+            packCost = perCarton.plainDigits
+            packPcs = pcs.plainDigits
         case let .flat(value):
             flatAmount = value.plainDigits
+            // A packaging labour cost entered before it was worked out per
+            // carton reopens as that cost over one carton, so the figure it
+            // was saved at does not move.
+            if category == .packagingLabourCost {
+                packCost = value.plainDigits
+                packPcs = "1"
+            }
         case nil:
             break
         }
@@ -116,6 +131,8 @@ struct AddCostItemView: View {
         _divider = State(initialValue: divide)
         _costPerTable = State(initialValue: tableCost)
         _pcsPerTable = State(initialValue: tablePcs)
+        _packagingPerCarton = State(initialValue: packCost)
+        _packagingPcs = State(initialValue: packPcs)
         _amount = State(initialValue: flatAmount)
     }
 
@@ -131,7 +148,8 @@ struct AddCostItemView: View {
             case .injectionPart: injectionFields
             case .importItem: cartonFields
             case .uv: uvFields
-            case .spray, .padPrint, .packagingLabourCost, .assemblyLabourCost: flatField
+            case .packagingLabourCost: packagingFields
+            case .spray, .padPrint, .assemblyLabourCost: flatField
             }
 
             if category == .importItem {
@@ -275,6 +293,18 @@ struct AddCostItemView: View {
         }
     }
 
+    private var packagingFields: some View {
+        Section {
+            numberField("Packaging Cost / Carton (Rp)", text: $packagingPerCarton)
+            numberField("Pcs / Ctn", text: $packagingPcs)
+            totalRow("Estimated Packaging Labour Cost", value: packagingSubtotal)
+        } header: {
+            Text("Cost")
+        } footer: {
+            Text(packagingFooter)
+        }
+    }
+
     private var flatField: some View {
         Section("Cost") {
             numberField("Estimated \(category.rawValue.capitalized) (Rp)", text: $amount)
@@ -372,6 +402,22 @@ struct AddCostItemView: View {
             cubicMetres: volume,
             ratePerCubicMetre: rate
         ).importCost
+    }
+
+    /// The carton's packing cost split across the pieces in it.
+    private var packagingSubtotal: Double? {
+        guard let cost = parse(packagingPerCarton),
+              let pcs = parse(packagingPcs), pcs > 0
+        else { return nil }
+        return cost / pcs
+    }
+
+    /// Shows the working, so the figure can be checked by eye.
+    private var packagingFooter: String {
+        guard let cost = parse(packagingPerCarton),
+              let pcs = parse(packagingPcs), pcs > 0
+        else { return "The carton's packing cost, split across the pieces in it." }
+        return "\(cost.rupiah) ÷ \(pcs.compact) pcs = \((cost / pcs).rupiah) per piece."
     }
 
     /// The piece and its freight added together, before scaling.
@@ -486,7 +532,13 @@ struct AddCostItemView: View {
             else { return nil }
             return .perTable(costPerTable: cost, pcsPerTable: pcs)
 
-        case .spray, .padPrint, .packagingLabourCost, .assemblyLabourCost:
+        case .packagingLabourCost:
+            guard let cost = parse(packagingPerCarton),
+                  let pcs = parse(packagingPcs), pcs > 0
+            else { return nil }
+            return .perCarton(costPerCarton: cost, pcsPerCarton: pcs)
+
+        case .spray, .padPrint, .assemblyLabourCost:
             guard let value = parse(amount) else { return nil }
             return .flat(amount: value)
         }
