@@ -42,6 +42,8 @@ struct SavedProductsView: View {
     /// Oldest first, so the list opens in the order things were saved.
     @State private var order: ProductSortOrder = .lowestFirst
     @State private var query = ""
+    @State private var exported: ExportedFile?
+    @State private var exportFailed = false
 
     /// The costings on screen: what the search matches, in the chosen order.
     private var visible: [SavedProduct] {
@@ -97,7 +99,32 @@ struct SavedProductsView: View {
         }
         .navigationTitle("Saved Products")
         .searchable(text: $query, prompt: "Name or code")
+        .sheet(item: $exported) { file in
+            ShareSheet(url: file.url)
+        }
+        .alert("Could Not Export", isPresented: $exportFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The file could not be written. There may be no room left on the phone.")
+        }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        export(as: .spreadsheet)
+                    } label: {
+                        Label("Excel Spreadsheet", systemImage: "tablecells")
+                    }
+                    Button {
+                        export(as: .pdf)
+                    } label: {
+                        Label("PDF", systemImage: "doc.richtext")
+                    }
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .disabled(visible.isEmpty)
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     Picker("Sort By", selection: $field) {
@@ -122,6 +149,16 @@ struct SavedProductsView: View {
                 .disabled(products.isEmpty)
             }
         }
+    }
+
+    /// Exports what is on screen, so a search or a sort carries into the
+    /// file rather than being quietly ignored.
+    private func export(as format: CostingExport.Format) {
+        guard let url = CostingExport.file(for: visible, as: format) else {
+            exportFailed = true
+            return
+        }
+        exported = ExportedFile(url: url)
     }
 
     private func row(_ binding: Binding<SavedProduct>) -> some View {
