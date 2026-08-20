@@ -15,19 +15,23 @@ struct SavedProduct: Identifiable, Codable, Hashable {
     var savedAt: Date
     /// Whether the 7.5% lain-lain is added on top.
     var includesMiscellaneous: Bool
+    /// Divides the grand total to give a selling price. Nil until one is set.
+    var sellingDivider: Double?
 
     init(
         id: UUID = UUID(),
         name: String,
         items: [CostItem],
         savedAt: Date = .now,
-        includesMiscellaneous: Bool = true
+        includesMiscellaneous: Bool = true,
+        sellingDivider: Double? = nil
     ) {
         self.id = id
         self.name = name
         self.items = items
         self.savedAt = savedAt
         self.includesMiscellaneous = includesMiscellaneous
+        self.sellingDivider = sellingDivider
     }
 
     var subtotal: Double { items.subtotal }
@@ -37,6 +41,19 @@ struct SavedProduct: Identifiable, Codable, Hashable {
     }
 
     var grandTotal: Double { subtotal + miscellaneous }
+
+    /// What the costing sells for, once a divider is set. Dividing by 0.8
+    /// leaves a fifth of the price over as margin.
+    var sellingPrice: Double? {
+        guard let sellingDivider, sellingDivider > 0 else { return nil }
+        return grandTotal / sellingDivider
+    }
+
+    /// The share of the selling price that is not cost, as a fraction.
+    var margin: Double? {
+        guard let sellingPrice, sellingPrice > 0 else { return nil }
+        return (sellingPrice - grandTotal) / sellingPrice
+    }
 }
 
 extension Array where Element == CostItem {

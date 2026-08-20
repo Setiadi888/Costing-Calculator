@@ -553,18 +553,8 @@ struct AddCostItemView: View {
         }
     }
 
-    /// Reads a typed number. A separator that repeats is grouping, so
-    /// "3.500.000" is three and a half million; a single one is a decimal
-    /// point, so "1,5" and "1.5" both read as 1.5.
     private func parse(_ text: String) -> Double? {
-        var cleaned = text.trimmingCharacters(in: .whitespaces)
-        guard !cleaned.isEmpty else { return nil }
-
-        for separator in [".", ","] where cleaned.components(separatedBy: separator).count > 2 {
-            cleaned = cleaned.replacingOccurrences(of: separator, with: "")
-        }
-        cleaned = cleaned.replacingOccurrences(of: ",", with: ".")
-        return Double(cleaned)
+        Double(costingInput: text)
     }
 }
 

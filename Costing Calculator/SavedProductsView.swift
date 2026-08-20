@@ -19,18 +19,33 @@ struct SavedProductsView: View {
                 )
             } else {
                 ForEach(products) { product in
-                    NavigationLink(value: product.id) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(product.name)
-                                Text("\(product.items.count) item\(product.items.count == 1 ? "" : "s") · \(product.savedAt.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
+                    HStack(spacing: 10) {
+                        NavigationLink(value: product.id) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(product.name)
+                                    Text("\(product.items.count) item\(product.items.count == 1 ? "" : "s") · \(product.savedAt.formatted(date: .abbreviated, time: .shortened))")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                    if let price = product.sellingPrice, let margin = product.margin {
+                                        Text("Sells at \(price.rupiah) · margin \(margin.percent)")
+                                            .font(.caption)
+                                            .foregroundStyle(.tint)
+                                    }
+                                }
+                                Spacer()
+                                Text(product.grandTotal.rupiah)
+                                    .font(.headline)
                             }
-                            Spacer()
-                            Text(product.grandTotal.rupiah)
-                                .font(.headline)
                         }
+                        // Its own link rather than a button, so the row's
+                        // link does not swallow the tap.
+                        NavigationLink(value: SellingPriceRoute(productID: product.id)) {
+                            Text("+Selling Price")
+                                .font(.caption)
+                                .fixedSize()
+                        }
+                        .buttonStyle(.borderless)
                     }
                 }
             }

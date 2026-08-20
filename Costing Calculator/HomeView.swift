@@ -115,6 +115,11 @@ struct HomeView: View {
                     SavedProductDetailView(product: $savedProducts[index])
                 }
             }
+            .navigationDestination(for: SellingPriceRoute.self) { route in
+                if let index = savedProducts.firstIndex(where: { $0.id == route.productID }) {
+                    SellingPriceView(product: $savedProducts[index])
+                }
+            }
             .navigationDestination(for: FinalTotalRoute.self) { _ in
                 FinalTotalView(products: savedProducts)
             }

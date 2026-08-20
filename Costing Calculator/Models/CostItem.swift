@@ -214,6 +214,21 @@ struct CostItem: Identifiable, Codable, Hashable {
 }
 
 extension Double {
+    /// Reads a number as it was typed. A separator that repeats is grouping,
+    /// so "3.500.000" is three and a half million; a single one is a decimal
+    /// point, so "1,5" and "1.5" both read as 1.5.
+    init?(costingInput text: String) {
+        var cleaned = text.trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return nil }
+
+        for separator in [".", ","] where cleaned.components(separatedBy: separator).count > 2 {
+            cleaned = cleaned.replacingOccurrences(of: separator, with: "")
+        }
+        cleaned = cleaned.replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(cleaned) else { return nil }
+        self = value
+    }
+
     /// Rupiah, using Indonesian separators.
     var rupiah: String {
         "Rp " + formatted(
@@ -226,6 +241,11 @@ extension Double {
     /// Plain number with trailing zeroes dropped.
     var compact: String {
         formatted(.number.precision(.fractionLength(0...2)))
+    }
+
+    /// A fraction as a percentage: 0.2 reads as 20%.
+    var percent: String {
+        formatted(.percent.precision(.fractionLength(0...1)))
     }
 
     /// Digits only, for prefilling a field. Grouping separators are left out
