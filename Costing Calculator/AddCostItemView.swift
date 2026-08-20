@@ -49,6 +49,9 @@ struct AddCostItemView: View {
     /// Free text saying what the packing cost covers.
     @State private var packagingNote: String
 
+    // PURCHASE LOCAL
+    @State private var localKind: LocalPurchaseKind
+
     // SPRAY / PAD PRINT / ASSEMBLY LABOUR
     @State private var amount: String
 
@@ -78,6 +81,7 @@ struct AddCostItemView: View {
         var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
         var materialExtra = false
         var kind = ImportKind.sparePart
+        var localType = LocalPurchaseKind.carton
 
         switch existing?.details {
         case let .injection(w, c, cav, m, day, price, extra):
@@ -108,6 +112,9 @@ struct AddCostItemView: View {
             packNote = note
             packCost = perCarton.plainDigits
             packPcs = pcs.plainDigits
+        case let .localPurchase(value, boughtKind):
+            flatAmount = value.plainDigits
+            localType = boughtKind
         case let .flat(value):
             flatAmount = value.plainDigits
             // A packaging labour cost entered before it was worked out per
@@ -142,6 +149,7 @@ struct AddCostItemView: View {
         _packagingPerCarton = State(initialValue: packCost)
         _packagingPcs = State(initialValue: packPcs)
         _packagingNote = State(initialValue: packNote)
+        _localKind = State(initialValue: localType)
         _amount = State(initialValue: flatAmount)
     }
 
@@ -168,6 +176,7 @@ struct AddCostItemView: View {
             case .injectionPart: injectionFields
             case .importItem: cartonFields
             case .uv: uvFields
+            case .purchaseLocal: localPurchaseFields
             case .packagingLabourCost: packagingFields
             case .spray, .padPrint, .assemblyLabourCost: flatField
             }
@@ -311,6 +320,21 @@ struct AddCostItemView: View {
         Section("Table") {
             numberField("Total Cost / Table (Rp)", text: $costPerTable)
             numberField("Total pcs / Table", text: $pcsPerTable)
+        }
+    }
+
+    private var localPurchaseFields: some View {
+        Section {
+            Picker("Type", selection: $localKind) {
+                ForEach(LocalPurchaseKind.allCases) { kind in
+                    Text(kind.rawValue).tag(kind)
+                }
+            }
+            numberField("Estimated Cost (Rp)", text: $amount)
+        } header: {
+            Text("Purchase")
+        } footer: {
+            Text("What it cost, per piece. Bought locally, so there is no freight to split.")
         }
     }
 
@@ -561,6 +585,10 @@ struct AddCostItemView: View {
                   let pcs = parse(packagingPcs), pcs > 0
             else { return nil }
             return .perCarton(costPerCarton: cost, pcsPerCarton: pcs, note: packagingNote)
+
+        case .purchaseLocal:
+            guard let value = parse(amount) else { return nil }
+            return .localPurchase(amount: value, kind: localKind)
 
         case .spray, .padPrint, .assemblyLabourCost:
             guard let value = parse(amount) else { return nil }

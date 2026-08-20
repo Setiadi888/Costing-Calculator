@@ -53,9 +53,23 @@ enum ImportKind: String, CaseIterable, Identifiable, Hashable, Codable {
     var id: String { rawValue }
 }
 
+/// What was bought locally. Written as it reads, since capitalising a raw
+/// value would turn OPP into Opp.
+enum LocalPurchaseKind: String, CaseIterable, Identifiable, Hashable, Codable {
+    case carton = "Carton"
+    case plasticBag = "Plastic Bag"
+    case opp = "OPP"
+    case pvc = "PVC"
+    case plastikRoll = "Plastik Roll"
+    case sticker = "Sticker"
+
+    var id: String { rawValue }
+}
+
 enum CostCategory: String, CaseIterable, Identifiable, Hashable, Codable {
     case injectionPart = "INJECTION PART"
     case importItem = "IMPORT"
+    case purchaseLocal = "PURCHASE LOCAL"
     case uv = "UV"
     case spray = "SPRAY"
     case padPrint = "PAD PRINT"
