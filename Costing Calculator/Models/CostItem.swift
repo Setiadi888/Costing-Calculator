@@ -115,9 +115,9 @@ enum CostDetails: Codable, Hashable {
     )
     /// A table's cost spread over the pieces it holds. UV.
     case perTable(costPerTable: Double, pcsPerTable: Double)
-    /// A carton's packing cost spread over the pieces in it.
-    /// PACKAGING LABOUR COST.
-    case perCarton(costPerCarton: Double, pcsPerCarton: Double)
+    /// A carton's packing cost spread over the pieces in it, with a note of
+    /// what that cost covers. PACKAGING LABOUR COST.
+    case perCarton(costPerCarton: Double, pcsPerCarton: Double, note: String)
     /// A figure entered directly. SPRAY, PAD PRINT and both labour costs.
     case flat(amount: Double)
 
@@ -149,7 +149,7 @@ enum CostDetails: Codable, Hashable {
             guard pcsPerTable > 0 else { return 0 }
             return costPerTable / pcsPerTable
 
-        case let .perCarton(costPerCarton, pcsPerCarton):
+        case let .perCarton(costPerCarton, pcsPerCarton, _):
             guard pcsPerCarton > 0 else { return 0 }
             return costPerCarton / pcsPerCarton
 
@@ -171,8 +171,10 @@ enum CostDetails: Codable, Hashable {
             return carton + " · ×\(multiplier.compact) ÷\(divider.compact)"
         case let .perTable(costPerTable, pcsPerTable):
             return "\(costPerTable.rupiah)/table · \(pcsPerTable.compact) pcs/table"
-        case let .perCarton(costPerCarton, pcsPerCarton):
-            return "\(costPerCarton.rupiah)/ctn · \(pcsPerCarton.compact) pcs/ctn"
+        case let .perCarton(costPerCarton, pcsPerCarton, note):
+            let packing = "\(costPerCarton.rupiah)/ctn · \(pcsPerCarton.compact) pcs/ctn"
+            let trimmed = note.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? packing : "\(packing) · \(trimmed)"
         case .flat:
             return ""
         }

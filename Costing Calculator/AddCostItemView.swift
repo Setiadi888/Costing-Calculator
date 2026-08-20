@@ -46,6 +46,8 @@ struct AddCostItemView: View {
     // PACKAGING LABOUR COST
     @State private var packagingPerCarton: String
     @State private var packagingPcs: String
+    /// Free text saying what the packing cost covers.
+    @State private var packagingNote: String
 
     // SPRAY / PAD PRINT / ASSEMBLY LABOUR
     @State private var amount: String
@@ -70,7 +72,7 @@ struct AddCostItemView: View {
         var cost = "", pcsCarton = "", volume = ""
         var rate = CostRates.defaultFreightPerCubicMetre.plainDigits
         var tableCost = "", tablePcs = "", flatAmount = ""
-        var packCost = "", packPcs = ""
+        var packCost = "", packPcs = "", packNote = ""
         var multiply = "1", divide = "1"
         var unitYuan = "", unitRate = ""
         var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
@@ -102,7 +104,8 @@ struct AddCostItemView: View {
         case let .perTable(perTable, pcs):
             tableCost = perTable.plainDigits
             tablePcs = pcs.plainDigits
-        case let .perCarton(perCarton, pcs):
+        case let .perCarton(perCarton, pcs, note):
+            packNote = note
             packCost = perCarton.plainDigits
             packPcs = pcs.plainDigits
         case let .flat(value):
@@ -138,6 +141,7 @@ struct AddCostItemView: View {
         _pcsPerTable = State(initialValue: tablePcs)
         _packagingPerCarton = State(initialValue: packCost)
         _packagingPcs = State(initialValue: packPcs)
+        _packagingNote = State(initialValue: packNote)
         _amount = State(initialValue: flatAmount)
     }
 
@@ -147,6 +151,17 @@ struct AddCostItemView: View {
                 TextField("Name", text: $name)
                     .labelsHidden()
                     .focused($isTyping)
+                if category == .packagingLabourCost {
+                    // Labelled beside the box rather than inside it, so the
+                    // label survives having something typed into it.
+                    LabeledContent("Include") {
+                        TextField("Include", text: $packagingNote, axis: .vertical)
+                            .lineLimit(1...4)
+                            .multilineTextAlignment(.trailing)
+                            .labelsHidden()
+                            .focused($isTyping)
+                    }
+                }
             }
 
             switch category {
@@ -545,7 +560,7 @@ struct AddCostItemView: View {
             guard let cost = parse(packagingPerCarton),
                   let pcs = parse(packagingPcs), pcs > 0
             else { return nil }
-            return .perCarton(costPerCarton: cost, pcsPerCarton: pcs)
+            return .perCarton(costPerCarton: cost, pcsPerCarton: pcs, note: packagingNote)
 
         case .spray, .padPrint, .assemblyLabourCost:
             guard let value = parse(amount) else { return nil }
