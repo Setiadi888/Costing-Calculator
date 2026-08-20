@@ -5,9 +5,8 @@
 
 import SwiftUI
 
-/// How the saved costings are ordered. Every figure sorts biggest first,
-/// since the question is always which product carries the most of it.
-enum ProductSort: String, CaseIterable, Identifiable {
+/// What the saved costings are ordered on.
+enum ProductSortField: String, CaseIterable, Identifiable {
     case dateSaved = "Date Saved"
     case cost = "Cost"
     case sellingPrice = "Selling Price"
@@ -16,11 +15,32 @@ enum ProductSort: String, CaseIterable, Identifiable {
     var id: String { rawValue }
 }
 
+/// Which end of that they are ordered from. Named ProductSortOrder rather
+/// than SortOrder, which Foundation already has.
+enum ProductSortOrder: String, CaseIterable, Identifiable {
+    case highestFirst
+    case lowestFirst
+
+    var id: String { rawValue }
+
+    /// Dates do not read as high and low.
+    func label(for field: ProductSortField) -> String {
+        switch (self, field) {
+        case (.highestFirst, .dateSaved): return "Newest First"
+        case (.lowestFirst, .dateSaved): return "Oldest First"
+        case (.highestFirst, _): return "Highest First"
+        case (.lowestFirst, _): return "Lowest First"
+        }
+    }
+}
+
 /// Every costing that has been saved from the grand total.
 struct SavedProductsView: View {
     @Binding var products: [SavedProduct]
 
-    @State private var sort: ProductSort = .dateSaved
+    @State private var field: ProductSortField = .dateSaved
+    /// Oldest first, so the list opens in the order things were saved.
+    @State private var order: ProductSortOrder = .lowestFirst
     @State private var query = ""
 
     /// The costings on screen: what the search matches, in the chosen order.
@@ -30,19 +50,28 @@ struct SavedProductsView: View {
             ? products
             : products.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
 
-        guard sort != .dateSaved else { return matched }
-        return matched.sorted { sortKey($0) > sortKey($1) }
+        return matched.sorted { left, right in
+            switch (sortKey(left), sortKey(right)) {
+            case let (lhs?, rhs?):
+                return order == .highestFirst ? lhs > rhs : lhs < rhs
+            // A costing with nothing to compare stays at the bottom either
+            // way round, rather than heading the list the moment the order
+            // is flipped.
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return false
+            }
+        }
     }
 
-    /// What the chosen order sorts on. A costing with no selling price set
-    /// has no price and no margin to compare, so it sorts to the bottom
-    /// rather than pretending to be worth nothing.
-    private func sortKey(_ product: SavedProduct) -> Double {
-        switch sort {
-        case .dateSaved: return 0
+    /// What the chosen field sorts on, or nil where a costing has no such
+    /// figure — no selling price set means no price and no margin.
+    private func sortKey(_ product: SavedProduct) -> Double? {
+        switch field {
+        case .dateSaved: return product.savedAt.timeIntervalSince1970
         case .cost: return product.grandTotal
-        case .sellingPrice: return product.sellingPrice ?? -.infinity
-        case .margin: return product.margin ?? -.infinity
+        case .sellingPrice: return product.sellingPrice
+        case .margin: return product.margin
         }
     }
 
@@ -71,9 +100,14 @@ struct SavedProductsView: View {
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
                 Menu {
-                    Picker("Sort", selection: $sort) {
-                        ForEach(ProductSort.allCases) { option in
+                    Picker("Sort By", selection: $field) {
+                        ForEach(ProductSortField.allCases) { option in
                             Text(option.rawValue).tag(option)
+                        }
+                    }
+                    Picker("Order", selection: $order) {
+                        ForEach(ProductSortOrder.allCases) { option in
+                            Text(option.label(for: field)).tag(option)
                         }
                     }
                 } label: {
