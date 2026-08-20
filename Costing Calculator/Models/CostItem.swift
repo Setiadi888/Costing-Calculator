@@ -118,9 +118,14 @@ enum CostDetails: Codable, Hashable {
     /// A carton's packing cost spread over the pieces in it, with a note of
     /// what that cost covers. PACKAGING LABOUR COST.
     case perCarton(costPerCarton: Double, pcsPerCarton: Double, note: String)
-    /// Something bought locally, at a figure entered directly.
-    /// PURCHASE LOCAL.
-    case localPurchase(amount: Double, kind: LocalPurchaseKind)
+    /// Something bought locally, at a figure entered directly and then
+    /// scaled. PURCHASE LOCAL.
+    case localPurchase(
+        amount: Double,
+        kind: LocalPurchaseKind,
+        divider: Double,
+        multiplier: Double
+    )
     /// A figure entered directly. SPRAY, PAD PRINT and both labour costs.
     case flat(amount: Double)
 
@@ -156,8 +161,12 @@ enum CostDetails: Codable, Hashable {
             guard pcsPerCarton > 0 else { return 0 }
             return costPerCarton / pcsPerCarton
 
-        case let .localPurchase(amount, _):
-            return amount
+        case let .localPurchase(amount, _, divider, multiplier):
+            // At or below zero in either box reads as 1: a slip should not
+            // cost the item at nothing, or at infinity.
+            let down = divider > 0 ? divider : 1
+            let up = multiplier > 0 ? multiplier : 1
+            return amount / down * up
 
         case let .flat(amount):
             return amount
@@ -181,8 +190,10 @@ enum CostDetails: Codable, Hashable {
             let packing = "\(costPerCarton.rupiah)/ctn · \(pcsPerCarton.compact) pcs/ctn"
             let trimmed = note.trimmingCharacters(in: .whitespaces)
             return trimmed.isEmpty ? packing : "\(packing) · \(trimmed)"
-        case let .localPurchase(_, kind):
-            return kind.rawValue
+        case let .localPurchase(_, kind, divider, multiplier):
+            // Only worth saying when it actually changes the figure.
+            guard divider != 1 || multiplier != 1 else { return kind.rawValue }
+            return "\(kind.rawValue) · ÷\(divider.compact) ×\(multiplier.compact)"
         case .flat:
             return ""
         }

@@ -51,6 +51,9 @@ struct AddCostItemView: View {
 
     // PURCHASE LOCAL
     @State private var localKind: LocalPurchaseKind
+    /// Scale the entered cost by. Both sit at 1 until something is typed.
+    @State private var localDivider: String
+    @State private var localMultiplier: String
 
     // SPRAY / PAD PRINT / ASSEMBLY LABOUR
     @State private var amount: String
@@ -82,6 +85,7 @@ struct AddCostItemView: View {
         var materialExtra = false
         var kind = ImportKind.sparePart
         var localType = LocalPurchaseKind.carton
+        var localDiv = "1", localMult = "1"
 
         switch existing?.details {
         case let .injection(w, c, cav, m, day, price, extra):
@@ -112,9 +116,11 @@ struct AddCostItemView: View {
             packNote = note
             packCost = perCarton.plainDigits
             packPcs = pcs.plainDigits
-        case let .localPurchase(value, boughtKind):
+        case let .localPurchase(value, boughtKind, div, mult):
             flatAmount = value.plainDigits
             localType = boughtKind
+            localDiv = div.plainDigits
+            localMult = mult.plainDigits
         case let .flat(value):
             flatAmount = value.plainDigits
             // A packaging labour cost entered before it was worked out per
@@ -150,6 +156,8 @@ struct AddCostItemView: View {
         _packagingPcs = State(initialValue: packPcs)
         _packagingNote = State(initialValue: packNote)
         _localKind = State(initialValue: localType)
+        _localDivider = State(initialValue: localDiv)
+        _localMultiplier = State(initialValue: localMult)
         _amount = State(initialValue: flatAmount)
     }
 
@@ -331,10 +339,12 @@ struct AddCostItemView: View {
                 }
             }
             numberField("Estimated Cost (Rp)", text: $amount)
+            numberField("Divider (÷)", text: $localDivider)
+            numberField("Multiplier (×)", text: $localMultiplier)
         } header: {
             Text("Purchase")
         } footer: {
-            Text("What it cost, per piece. Bought locally, so there is no freight to split.")
+            Text(localPurchaseFooter)
         }
     }
 
@@ -448,6 +458,15 @@ struct AddCostItemView: View {
             cubicMetres: volume,
             ratePerCubicMetre: rate
         ).importCost
+    }
+
+    /// Shows the working, so the cost can be checked by eye.
+    private var localPurchaseFooter: String {
+        guard let cost = parse(amount) else {
+            return "What it cost, then divided and multiplied. Leave both at 1 to keep it as it is."
+        }
+        let down = factor(localDivider), up = factor(localMultiplier)
+        return "\(cost.rupiah) ÷ \(down.compact) × \(up.compact) = \((cost / down * up).rupiah)."
     }
 
     /// The carton's packing cost split across the pieces in it.
@@ -588,7 +607,12 @@ struct AddCostItemView: View {
 
         case .purchaseLocal:
             guard let value = parse(amount) else { return nil }
-            return .localPurchase(amount: value, kind: localKind)
+            return .localPurchase(
+                amount: value,
+                kind: localKind,
+                divider: factor(localDivider),
+                multiplier: factor(localMultiplier)
+            )
 
         case .spray, .padPrint, .assemblyLabourCost:
             guard let value = parse(amount) else { return nil }
