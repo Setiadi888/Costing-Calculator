@@ -5,9 +5,46 @@
 
 import SwiftUI
 
+/// How the saved costings are ordered. Every figure sorts biggest first,
+/// since the question is always which product carries the most of it.
+enum ProductSort: String, CaseIterable, Identifiable {
+    case dateSaved = "Date Saved"
+    case cost = "Cost"
+    case sellingPrice = "Selling Price"
+    case margin = "Margin"
+
+    var id: String { rawValue }
+}
+
 /// Every costing that has been saved from the grand total.
 struct SavedProductsView: View {
     @Binding var products: [SavedProduct]
+
+    @State private var sort: ProductSort = .dateSaved
+    @State private var query = ""
+
+    /// The costings on screen: what the search matches, in the chosen order.
+    private var visible: [SavedProduct] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let matched = trimmed.isEmpty
+            ? products
+            : products.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+
+        guard sort != .dateSaved else { return matched }
+        return matched.sorted { sortKey($0) > sortKey($1) }
+    }
+
+    /// What the chosen order sorts on. A costing with no selling price set
+    /// has no price and no margin to compare, so it sorts to the bottom
+    /// rather than pretending to be worth nothing.
+    private func sortKey(_ product: SavedProduct) -> Double {
+        switch sort {
+        case .dateSaved: return 0
+        case .cost: return product.grandTotal
+        case .sellingPrice: return product.sellingPrice ?? -.infinity
+        case .margin: return product.margin ?? -.infinity
+        }
+    }
 
     var body: some View {
         List {
@@ -17,48 +54,72 @@ struct SavedProductsView: View {
                     systemImage: "tray",
                     description: Text("Save a grand total to keep a costing here.")
                 )
+            } else if visible.isEmpty {
+                ContentUnavailableView.search(text: query)
             } else {
-                ForEach($products) { $product in
-                    HStack(spacing: 10) {
-                        ProductThumbnail(product: $product)
-                        NavigationLink(value: product.id) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(product.name)
-                                    Text("\(product.items.count) item\(product.items.count == 1 ? "" : "s") · \(product.savedAt.formatted(date: .abbreviated, time: .shortened))")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                    if let price = product.sellingPrice, let margin = product.margin {
-                                        Text("Sells at \(price.rupiah) · margin \(margin.percent)")
-                                            .font(.caption)
-                                            .foregroundStyle(.tint)
-                                    }
-                                }
-                                Spacer()
-                                Text(product.grandTotal.rupiah)
-                                    .font(.headline)
-                            }
-                        }
-                        // Its own link rather than a button, so the row's
-                        // link does not swallow the tap.
-                        NavigationLink(value: SellingPriceRoute(productID: product.id)) {
-                            Text("+Selling Price")
-                                .font(.caption)
-                                .fixedSize()
-                        }
-                        .buttonStyle(.borderless)
+                ForEach(visible) { product in
+                    // Bind back into the array itself, so a photo added to a
+                    // row lands on the costing and not on a copy of it.
+                    if let index = products.firstIndex(where: { $0.id == product.id }) {
+                        row($products[index])
                     }
                 }
             }
         }
         .navigationTitle("Saved Products")
+        .searchable(text: $query, prompt: "Name or code")
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("Sort", selection: $sort) {
+                        ForEach(ProductSort.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                }
+                .disabled(products.isEmpty)
+            }
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink(value: FinalTotalRoute()) {
                     Label("Final Total", systemImage: "sum")
                 }
                 .disabled(products.isEmpty)
             }
+        }
+    }
+
+    private func row(_ binding: Binding<SavedProduct>) -> some View {
+        let product = binding.wrappedValue
+        return HStack(spacing: 10) {
+            ProductThumbnail(product: binding)
+            NavigationLink(value: product.id) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(product.name)
+                        Text("\(product.items.count) item\(product.items.count == 1 ? "" : "s") · \(product.savedAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let price = product.sellingPrice, let margin = product.margin {
+                            Text("Sells at \(price.rupiah) · margin \(margin.percent)")
+                                .font(.caption)
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    Spacer()
+                    Text(product.grandTotal.rupiah)
+                        .font(.headline)
+                }
+            }
+            // Its own link rather than a button, so the row's link does not
+            // swallow the tap.
+            NavigationLink(value: SellingPriceRoute(productID: product.id)) {
+                Text("+Selling Price")
+                    .font(.caption)
+                    .fixedSize()
+            }
+            .buttonStyle(.borderless)
         }
     }
 }
