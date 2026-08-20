@@ -5,9 +5,77 @@
 
 import SwiftUI
 
+/// What the saved costings are ordered on.
+enum ProductSortField: String, CaseIterable, Identifiable {
+    case dateSaved = "Date Saved"
+    case cost = "Cost"
+    case sellingPrice = "Selling Price"
+    case margin = "Margin"
+
+    var id: String { rawValue }
+}
+
+/// Which end of that they are ordered from. Named ProductSortOrder rather
+/// than SortOrder, which Foundation already has.
+enum ProductSortOrder: String, CaseIterable, Identifiable {
+    case highestFirst
+    case lowestFirst
+
+    var id: String { rawValue }
+
+    /// Dates do not read as high and low.
+    func label(for field: ProductSortField) -> String {
+        switch (self, field) {
+        case (.highestFirst, .dateSaved): return "Newest First"
+        case (.lowestFirst, .dateSaved): return "Oldest First"
+        case (.highestFirst, _): return "Highest First"
+        case (.lowestFirst, _): return "Lowest First"
+        }
+    }
+}
+
 /// Every costing that has been saved from the grand total.
 struct SavedProductsView: View {
-    let products: [SavedProduct]
+    @Binding var products: [SavedProduct]
+
+    @State private var field: ProductSortField = .dateSaved
+    /// Oldest first, so the list opens in the order things were saved.
+    @State private var order: ProductSortOrder = .lowestFirst
+    @State private var query = ""
+    @State private var exported: ExportedFile?
+    @State private var exportFailed = false
+
+    /// The costings on screen: what the search matches, in the chosen order.
+    private var visible: [SavedProduct] {
+        let trimmed = query.trimmingCharacters(in: .whitespaces)
+        let matched = trimmed.isEmpty
+            ? products
+            : products.filter { $0.name.localizedCaseInsensitiveContains(trimmed) }
+
+        return matched.sorted { left, right in
+            switch (sortKey(left), sortKey(right)) {
+            case let (lhs?, rhs?):
+                return order == .highestFirst ? lhs > rhs : lhs < rhs
+            // A costing with nothing to compare stays at the bottom either
+            // way round, rather than heading the list the moment the order
+            // is flipped.
+            case (nil, _?): return false
+            case (_?, nil): return true
+            case (nil, nil): return false
+            }
+        }
+    }
+
+    /// What the chosen field sorts on, or nil where a costing has no such
+    /// figure — no selling price set means no price and no margin.
+    private func sortKey(_ product: SavedProduct) -> Double? {
+        switch field {
+        case .dateSaved: return product.savedAt.timeIntervalSince1970
+        case .cost: return product.grandTotal
+        case .sellingPrice: return product.sellingPrice
+        case .margin: return product.margin
+        }
+    }
 
     var body: some View {
         List {
@@ -17,32 +85,112 @@ struct SavedProductsView: View {
                     systemImage: "tray",
                     description: Text("Save a grand total to keep a costing here.")
                 )
+            } else if visible.isEmpty {
+                ContentUnavailableView.search(text: query)
             } else {
-                ForEach(products) { product in
-                    NavigationLink(value: product.id) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(product.name)
-                                Text("\(product.items.count) item\(product.items.count == 1 ? "" : "s") · \(product.savedAt.formatted(date: .abbreviated, time: .shortened))")
-                                    .font(.caption)
-                                    .foregroundStyle(.secondary)
-                            }
-                            Spacer()
-                            Text(product.grandTotal.rupiah)
-                                .font(.headline)
-                        }
+                ForEach(visible) { product in
+                    // Bind back into the array itself, so a photo added to a
+                    // row lands on the costing and not on a copy of it.
+                    if let index = products.firstIndex(where: { $0.id == product.id }) {
+                        row($products[index])
                     }
                 }
             }
         }
         .navigationTitle("Saved Products")
+        .searchable(text: $query, prompt: "Name or code")
+        .sheet(item: $exported) { file in
+            ShareSheet(url: file.url)
+        }
+        .alert("Could Not Export", isPresented: $exportFailed) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text("The file could not be written. There may be no room left on the phone.")
+        }
         .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Button {
+                        export(as: .spreadsheet)
+                    } label: {
+                        Label("Excel Spreadsheet", systemImage: "tablecells")
+                    }
+                    Button {
+                        export(as: .pdf)
+                    } label: {
+                        Label("PDF", systemImage: "doc.richtext")
+                    }
+                } label: {
+                    Label("Export", systemImage: "square.and.arrow.up")
+                }
+                .disabled(visible.isEmpty)
+            }
+            ToolbarItem(placement: .primaryAction) {
+                Menu {
+                    Picker("Sort By", selection: $field) {
+                        ForEach(ProductSortField.allCases) { option in
+                            Text(option.rawValue).tag(option)
+                        }
+                    }
+                    Picker("Order", selection: $order) {
+                        ForEach(ProductSortOrder.allCases) { option in
+                            Text(option.label(for: field)).tag(option)
+                        }
+                    }
+                } label: {
+                    Label("Sort", systemImage: "arrow.up.arrow.down")
+                }
+                .disabled(products.isEmpty)
+            }
             ToolbarItem(placement: .primaryAction) {
                 NavigationLink(value: FinalTotalRoute()) {
                     Label("Final Total", systemImage: "sum")
                 }
                 .disabled(products.isEmpty)
             }
+        }
+    }
+
+    /// Exports what is on screen, so a search or a sort carries into the
+    /// file rather than being quietly ignored.
+    private func export(as format: CostingExport.Format) {
+        guard let url = CostingExport.file(for: visible, as: format) else {
+            exportFailed = true
+            return
+        }
+        exported = ExportedFile(url: url)
+    }
+
+    private func row(_ binding: Binding<SavedProduct>) -> some View {
+        let product = binding.wrappedValue
+        return HStack(spacing: 10) {
+            ProductThumbnail(product: binding)
+            NavigationLink(value: product.id) {
+                HStack {
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(product.name)
+                        Text("\(product.items.count) item\(product.items.count == 1 ? "" : "s") · \(product.savedAt.formatted(date: .abbreviated, time: .shortened))")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                        if let price = product.sellingPrice, let margin = product.margin {
+                            Text("Sells at \(price.rupiah) · margin \(margin.percent)")
+                                .font(.caption)
+                                .foregroundStyle(.tint)
+                        }
+                    }
+                    Spacer()
+                    Text(product.grandTotal.rupiah)
+                        .font(.headline)
+                }
+            }
+            // Its own link rather than a button, so the row's link does not
+            // swallow the tap.
+            NavigationLink(value: SellingPriceRoute(productID: product.id)) {
+                Text("+Selling Price")
+                    .font(.caption)
+                    .fixedSize()
+            }
+            .buttonStyle(.borderless)
         }
     }
 }
@@ -151,7 +299,7 @@ struct CostSummaryRows: View {
 
 #Preview {
     NavigationStack {
-        SavedProductsView(products: [
+        SavedProductsView(products: .constant([
             SavedProduct(
                 name: "Product 1",
                 items: [
@@ -164,11 +312,12 @@ struct CostSummaryRows: View {
                             cavities: 10,
                             material: .pp,
                             costPerDay: 1_500_000,
-                            materialPrice: PriceInput(rupiah: 28_000)
+                            materialPrice: PriceInput(rupiah: 28_000),
+                            addsExtra: false
                         )
                     )
                 ]
             )
-        ])
+        ]))
     }
 }

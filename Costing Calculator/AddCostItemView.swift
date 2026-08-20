@@ -21,8 +21,11 @@ struct AddCostItemView: View {
     @State private var cavities: String
     @State private var material: MouldingMaterial
     @State private var costPerDay: Double
-    @State private var materialRmb: String
-    @State private var materialExchangeRate: String
+    /// The rate per kilo in Rupiah, entered by hand. Starts from the
+    /// material's standing rate where it has one.
+    @State private var materialRupiah: String
+    /// Adds 3% on top of the material cost.
+    @State private var addsMaterialExtra: Bool
 
     // IMPORT
     @State private var importKind: ImportKind
@@ -32,12 +35,27 @@ struct AddCostItemView: View {
     @State private var pcsPerCarton: String
     @State private var cubicMetres: String
     @State private var ratePerCubicMetre: String
+    /// Scale the total by. Both sit at 1 until something is typed.
+    @State private var multiplier: String
+    @State private var divider: String
 
     // UV
     @State private var costPerTable: String
     @State private var pcsPerTable: String
 
-    // SPRAY / PAD PRINT / LABOUR
+    // PACKAGING LABOUR COST
+    @State private var packagingPerCarton: String
+    @State private var packagingPcs: String
+    /// Free text saying what the packing cost covers.
+    @State private var packagingNote: String
+
+    // PURCHASE LOCAL
+    @State private var localKind: LocalPurchaseKind
+    /// Scale the entered cost by. Both sit at 1 until something is typed.
+    @State private var localDivider: String
+    @State private var localMultiplier: String
+
+    // SPRAY / PAD PRINT / ASSEMBLY LABOUR
     @State private var amount: String
 
     init(
@@ -60,31 +78,58 @@ struct AddCostItemView: View {
         var cost = "", pcsCarton = "", volume = ""
         var rate = CostRates.defaultFreightPerCubicMetre.plainDigits
         var tableCost = "", tablePcs = "", flatAmount = ""
-        var materialYuan = "", materialRate = "", unitYuan = "", unitRate = ""
+        var packCost = "", packPcs = "", packNote = ""
+        var multiply = "1", divide = "1"
+        var unitYuan = "", unitRate = ""
+        var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
+        var materialExtra = false
         var kind = ImportKind.sparePart
+        var localType = LocalPurchaseKind.carton
+        var localDiv = "1", localMult = "1"
 
         switch existing?.details {
-        case let .injection(w, c, cav, m, day, price):
+        case let .injection(w, c, cav, m, day, price, extra):
             weight = w.plainDigits
             cycle = c.plainDigits
             cavityCount = cav.plainDigits
             mouldingMaterial = m
             perDay = day
-            if price.rmb > 0 { materialYuan = price.rmb.plainDigits }
-            if price.exchangeRate > 0 { materialRate = price.exchangeRate.plainDigits }
-        case let .cartoned(price, pcs, m3, perM3, existingKind):
+            // price.value rather than price.rupiah: a costing saved when
+            // the rate could still be given in Yuan reopens at the rate it
+            // was actually worked out from.
+            materialKg = price.value > 0 ? price.value.plainDigits : ""
+            materialExtra = extra
+        case let .cartoned(price, pcs, m3, perM3, mult, div, existingKind):
             cost = price.rupiah.plainDigits
             if price.rmb > 0 { unitYuan = price.rmb.plainDigits }
             if price.exchangeRate > 0 { unitRate = price.exchangeRate.plainDigits }
             pcsCarton = pcs.plainDigits
             volume = m3.plainDigits
             rate = perM3.plainDigits
+            multiply = mult.plainDigits
+            divide = div.plainDigits
             kind = existingKind
         case let .perTable(perTable, pcs):
             tableCost = perTable.plainDigits
             tablePcs = pcs.plainDigits
+        case let .perCarton(perCarton, pcs, note):
+            packNote = note
+            packCost = perCarton.plainDigits
+            packPcs = pcs.plainDigits
+        case let .localPurchase(value, boughtKind, div, mult):
+            flatAmount = value.plainDigits
+            localType = boughtKind
+            localDiv = div.plainDigits
+            localMult = mult.plainDigits
         case let .flat(value):
             flatAmount = value.plainDigits
+            // A packaging labour cost entered before it was worked out per
+            // carton reopens as that cost over one carton, so the figure it
+            // was saved at does not move.
+            if category == .packagingLabourCost {
+                packCost = value.plainDigits
+                packPcs = "1"
+            }
         case nil:
             break
         }
@@ -93,9 +138,9 @@ struct AddCostItemView: View {
         _cycleTime = State(initialValue: cycle)
         _cavities = State(initialValue: cavityCount)
         _material = State(initialValue: mouldingMaterial)
+        _materialRupiah = State(initialValue: materialKg)
+        _addsMaterialExtra = State(initialValue: materialExtra)
         _costPerDay = State(initialValue: perDay)
-        _materialRmb = State(initialValue: materialYuan)
-        _materialExchangeRate = State(initialValue: materialRate)
         _importKind = State(initialValue: kind)
         _unitCost = State(initialValue: cost)
         _unitRmb = State(initialValue: unitYuan)
@@ -103,8 +148,16 @@ struct AddCostItemView: View {
         _pcsPerCarton = State(initialValue: pcsCarton)
         _cubicMetres = State(initialValue: volume)
         _ratePerCubicMetre = State(initialValue: rate)
+        _multiplier = State(initialValue: multiply)
+        _divider = State(initialValue: divide)
         _costPerTable = State(initialValue: tableCost)
         _pcsPerTable = State(initialValue: tablePcs)
+        _packagingPerCarton = State(initialValue: packCost)
+        _packagingPcs = State(initialValue: packPcs)
+        _packagingNote = State(initialValue: packNote)
+        _localKind = State(initialValue: localType)
+        _localDivider = State(initialValue: localDiv)
+        _localMultiplier = State(initialValue: localMult)
         _amount = State(initialValue: flatAmount)
     }
 
@@ -114,17 +167,43 @@ struct AddCostItemView: View {
                 TextField("Name", text: $name)
                     .labelsHidden()
                     .focused($isTyping)
+                if category == .packagingLabourCost {
+                    // Labelled beside the box rather than inside it, so the
+                    // label survives having something typed into it.
+                    LabeledContent("Include") {
+                        TextField("Include", text: $packagingNote, axis: .vertical)
+                            .lineLimit(1...4)
+                            .multilineTextAlignment(.trailing)
+                            .labelsHidden()
+                            .focused($isTyping)
+                    }
+                }
             }
 
             switch category {
             case .injectionPart: injectionFields
             case .importItem: cartonFields
             case .uv: uvFields
-            case .spray, .padPrint, .packagingLabourCost, .assemblyLabourCost: flatField
+            case .purchaseLocal: localPurchaseFields
+            case .packagingLabourCost: packagingFields
+            case .spray, .padPrint, .assemblyLabourCost: flatField
             }
 
-            Section(totalTitle) {
-                totalRow(totalTitle, value: details?.subtotal)
+            if category == .importItem {
+                Section {
+                    totalRow("Total Cost", value: cartonTotal)
+                    numberField("Multiplier (×)", text: $multiplier)
+                    numberField("Divider (÷)", text: $divider)
+                    totalRow("Final Total Cost", value: details?.subtotal)
+                } header: {
+                    Text("Total Cost")
+                } footer: {
+                    Text(adjustmentFooter)
+                }
+            } else {
+                Section(totalTitle) {
+                    totalRow(totalTitle, value: details?.subtotal)
+                }
             }
         }
         .formStyle(.grouped)
@@ -172,18 +251,22 @@ struct AddCostItemView: View {
             Section {
                 numberField("Weight (gram)", text: $weightGrams)
                 Picker("Type of Material", selection: $material) {
-                    ForEach(MouldingMaterial.allCases) { material in
-                        Text("\(material.rawValue) — \(material.ratePerKg.rupiah)/kg").tag(material)
+                    ForEach(MouldingMaterial.allCases) { option in
+                        Text(option.rawValue).tag(option)
                     }
                 }
-                numberField("Price in RMB / kg", text: $materialRmb)
-                numberField("Exchange Rate (Rp / RMB)", text: $materialExchangeRate)
-                convertedRow("Converted (Rp / kg)", price: materialPrice)
+                .onChange(of: material) { _, chosen in
+                    // A different material is a different price, so start
+                    // again from whatever that one is worth.
+                    materialRupiah = chosen.defaultRatePerKg?.plainDigits ?? ""
+                }
+                numberField("Price (Rp / kg)", text: $materialRupiah)
+                Toggle("Add 3%", isOn: $addsMaterialExtra)
                 totalRow("Sub Total", value: materialSubtotal)
             } header: {
                 Text("Material")
             } footer: {
-                Text(priceFooter(materialPrice, unit: "kg"))
+                Text(materialFooter)
             }
             Section {
                 Picker("Cost of Injection / Day", selection: $costPerDay) {
@@ -248,6 +331,35 @@ struct AddCostItemView: View {
         }
     }
 
+    private var localPurchaseFields: some View {
+        Section {
+            Picker("Type", selection: $localKind) {
+                ForEach(LocalPurchaseKind.allCases) { kind in
+                    Text(kind.rawValue).tag(kind)
+                }
+            }
+            numberField("Estimated Cost (Rp)", text: $amount)
+            numberField("Divider (÷)", text: $localDivider)
+            numberField("Multiplier (×)", text: $localMultiplier)
+        } header: {
+            Text("Purchase")
+        } footer: {
+            Text(localPurchaseFooter)
+        }
+    }
+
+    private var packagingFields: some View {
+        Section {
+            numberField("Packaging Cost / Carton (Rp)", text: $packagingPerCarton)
+            numberField("Pcs / Ctn", text: $packagingPcs)
+            totalRow("Estimated Packaging Labour Cost", value: packagingSubtotal)
+        } header: {
+            Text("Cost")
+        } footer: {
+            Text(packagingFooter)
+        }
+    }
+
     private var flatField: some View {
         Section("Cost") {
             numberField("Estimated \(category.rawValue.capitalized) (Rp)", text: $amount)
@@ -267,24 +379,32 @@ struct AddCostItemView: View {
 
     /// Material half, available as soon as a weight is entered.
     private var materialSubtotal: Double? {
-        guard let weight = parse(weightGrams) else { return nil }
+        guard let weight = parse(weightGrams), materialPrice.value > 0 else { return nil }
         return InjectionBreakdown(
             weightGrams: weight,
             cycleTimeSeconds: 0,
             cavities: 0,
             material: material,
             costPerDay: costPerDay,
-            materialPrice: materialPrice
+            materialPrice: materialPrice,
+            addsExtra: addsMaterialExtra
         ).materialCost
     }
 
-    /// The rate per kilo: the material's own, unless an RMB price overrides it.
+    /// The rate per kilo, as entered. Material is priced in Rupiah only.
     private var materialPrice: PriceInput {
-        PriceInput(
-            rupiah: material.ratePerKg,
-            rmb: parse(materialRmb) ?? 0,
-            exchangeRate: parse(materialExchangeRate) ?? 0
-        )
+        PriceInput(rupiah: parse(materialRupiah) ?? 0)
+    }
+
+    /// Shows the working, so the sub total can be checked by eye.
+    private var materialFooter: String {
+        guard let weight = parse(weightGrams), materialPrice.value > 0 else {
+            return "Weight in kilos × the rate per kilo = material cost."
+        }
+        let base = weight / 1_000 * materialPrice.value
+        let sum = "\(weight.compact) g ÷ 1.000 × \(materialPrice.value.rupiah) = \(base.rupiah)"
+        guard addsMaterialExtra else { return sum + "." }
+        return sum + ", + 3% = \((base * (1 + CostRates.materialExtraRate)).rupiah)."
     }
 
     /// The cost per piece, in Rupiah or converted from RMB.
@@ -340,6 +460,53 @@ struct AddCostItemView: View {
         ).importCost
     }
 
+    /// Shows the working, so the cost can be checked by eye.
+    private var localPurchaseFooter: String {
+        guard let cost = parse(amount) else {
+            return "What it cost, then divided and multiplied. Leave both at 1 to keep it as it is."
+        }
+        let down = factor(localDivider), up = factor(localMultiplier)
+        return "\(cost.rupiah) ÷ \(down.compact) × \(up.compact) = \((cost / down * up).rupiah)."
+    }
+
+    /// The carton's packing cost split across the pieces in it.
+    private var packagingSubtotal: Double? {
+        guard let cost = parse(packagingPerCarton),
+              let pcs = parse(packagingPcs), pcs > 0
+        else { return nil }
+        return cost / pcs
+    }
+
+    /// Shows the working, so the figure can be checked by eye.
+    private var packagingFooter: String {
+        guard let cost = parse(packagingPerCarton),
+              let pcs = parse(packagingPcs), pcs > 0
+        else { return "The carton's packing cost, split across the pieces in it." }
+        return "\(cost.rupiah) ÷ \(pcs.compact) pcs = \((cost / pcs).rupiah) per piece."
+    }
+
+    /// The piece and its freight added together, before scaling.
+    private var cartonTotal: Double? {
+        guard let product = productSubtotal, let freight = importSubtotal else { return nil }
+        return product + freight
+    }
+
+    /// A scale factor as typed. Blank, zero or nonsense leaves the total be,
+    /// rather than costing the item at nothing.
+    private func factor(_ text: String) -> Double {
+        guard let value = parse(text), value > 0 else { return 1 }
+        return value
+    }
+
+    /// Shows the working, so the final total can be checked by eye.
+    private var adjustmentFooter: String {
+        guard let total = cartonTotal else {
+            return "The total is multiplied, then divided. Leave both at 1 to keep it as it is."
+        }
+        let up = factor(multiplier), down = factor(divider)
+        return "\(total.rupiah) × \(up.compact) ÷ \(down.compact) = \((total * up / down).rupiah)."
+    }
+
     /// Shows the working, so the sub total can be checked by eye.
     private var injectFooter: String {
         guard let breakdown = injectionInputs else {
@@ -362,7 +529,8 @@ struct AddCostItemView: View {
             cavities: cavityCount,
             material: material,
             costPerDay: costPerDay,
-            materialPrice: materialPrice
+            materialPrice: materialPrice,
+            addsExtra: addsMaterialExtra
         )
     }
 
@@ -393,6 +561,7 @@ struct AddCostItemView: View {
         switch category {
         case .injectionPart:
             guard let weight = parse(weightGrams),
+                  materialPrice.value > 0,
                   let cycle = parse(cycleTime), cycle > 0,
                   let cavityCount = parse(cavities), cavityCount > 0
             else { return nil }
@@ -402,7 +571,8 @@ struct AddCostItemView: View {
                 cavities: cavityCount,
                 material: material,
                 costPerDay: costPerDay,
-                materialPrice: materialPrice
+                materialPrice: materialPrice,
+                addsExtra: addsMaterialExtra
             )
 
         case .importItem:
@@ -418,6 +588,8 @@ struct AddCostItemView: View {
                 pcsPerCarton: pcs,
                 cubicMetres: volume,
                 ratePerCubicMetre: rate,
+                multiplier: factor(multiplier),
+                divider: factor(divider),
                 kind: importKind
             )
 
@@ -427,24 +599,29 @@ struct AddCostItemView: View {
             else { return nil }
             return .perTable(costPerTable: cost, pcsPerTable: pcs)
 
-        case .spray, .padPrint, .packagingLabourCost, .assemblyLabourCost:
+        case .packagingLabourCost:
+            guard let cost = parse(packagingPerCarton),
+                  let pcs = parse(packagingPcs), pcs > 0
+            else { return nil }
+            return .perCarton(costPerCarton: cost, pcsPerCarton: pcs, note: packagingNote)
+
+        case .purchaseLocal:
+            guard let value = parse(amount) else { return nil }
+            return .localPurchase(
+                amount: value,
+                kind: localKind,
+                divider: factor(localDivider),
+                multiplier: factor(localMultiplier)
+            )
+
+        case .spray, .padPrint, .assemblyLabourCost:
             guard let value = parse(amount) else { return nil }
             return .flat(amount: value)
         }
     }
 
-    /// Reads a typed number. A separator that repeats is grouping, so
-    /// "3.500.000" is three and a half million; a single one is a decimal
-    /// point, so "1,5" and "1.5" both read as 1.5.
     private func parse(_ text: String) -> Double? {
-        var cleaned = text.trimmingCharacters(in: .whitespaces)
-        guard !cleaned.isEmpty else { return nil }
-
-        for separator in [".", ","] where cleaned.components(separatedBy: separator).count > 2 {
-            cleaned = cleaned.replacingOccurrences(of: separator, with: "")
-        }
-        cleaned = cleaned.replacingOccurrences(of: ",", with: ".")
-        return Double(cleaned)
+        Double(costingInput: text)
     }
 }
 

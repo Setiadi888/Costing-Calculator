@@ -13,17 +13,22 @@ struct InjectionBreakdown {
     var cavities: Double
     var material: MouldingMaterial
     var costPerDay: Double
-    /// Rate per kilo. Defaults to the material's own rate, but can be given
-    /// in RMB with an exchange rate instead.
+    /// Rate per kilo as entered on the form, starting from the material's
+    /// standing rate where it has one. Can be given in RMB with an exchange
+    /// rate instead.
     var materialPrice: PriceInput
+    /// Adds 3% on top of the material cost when ticked on the form.
+    var addsExtra: Bool = false
 
     var ratePerKg: Double {
         materialPrice.value
     }
 
-    /// Weight converted to kilos at the material's rate.
+    /// Weight converted to kilos at the material's rate, with the 3% on top
+    /// when it is being added.
     var materialCost: Double {
-        (weightGrams / 1_000) * ratePerKg
+        let base = (weightGrams / 1_000) * ratePerKg
+        return addsExtra ? base * (1 + CostRates.materialExtraRate) : base
     }
 
     /// Cycles the machine completes in a day.
@@ -56,6 +61,11 @@ struct CartonBreakdown {
     var pcsPerCarton: Double
     var cubicMetres: Double
     var ratePerCubicMetre: Double
+    /// Scales the total up, then back down. Both sit at 1 when the total is
+    /// to be left alone, and anything at or below zero is read as 1 rather
+    /// than costing the item at nothing.
+    var multiplier: Double = 1
+    var divider: Double = 1
 
     /// What the piece itself costs.
     var productCost: Double {
@@ -68,8 +78,16 @@ struct CartonBreakdown {
         return cubicMetres * ratePerCubicMetre / pcsPerCarton
     }
 
+    /// The piece and its freight, before scaling.
     var totalCost: Double {
         productCost + importCost
+    }
+
+    /// What the item is actually costed at, once scaled.
+    var finalTotalCost: Double {
+        let up = multiplier > 0 ? multiplier : 1
+        let down = divider > 0 ? divider : 1
+        return totalCost * up / down
     }
 }
 
@@ -82,7 +100,8 @@ enum CostDetails: Codable, Hashable {
         cavities: Double,
         material: MouldingMaterial,
         costPerDay: Double,
-        materialPrice: PriceInput
+        materialPrice: PriceInput,
+        addsExtra: Bool
     )
     /// Unit cost plus the carton's share of freight. IMPORT, of any kind.
     case cartoned(
@@ -90,37 +109,64 @@ enum CostDetails: Codable, Hashable {
         pcsPerCarton: Double,
         cubicMetres: Double,
         ratePerCubicMetre: Double,
+        multiplier: Double,
+        divider: Double,
         kind: ImportKind
     )
     /// A table's cost spread over the pieces it holds. UV.
     case perTable(costPerTable: Double, pcsPerTable: Double)
+    /// A carton's packing cost spread over the pieces in it, with a note of
+    /// what that cost covers. PACKAGING LABOUR COST.
+    case perCarton(costPerCarton: Double, pcsPerCarton: Double, note: String)
+    /// Something bought locally, at a figure entered directly and then
+    /// scaled. PURCHASE LOCAL.
+    case localPurchase(
+        amount: Double,
+        kind: LocalPurchaseKind,
+        divider: Double,
+        multiplier: Double
+    )
     /// A figure entered directly. SPRAY, PAD PRINT and both labour costs.
     case flat(amount: Double)
 
     /// Cost of one piece, in Rupiah.
     var subtotal: Double {
         switch self {
-        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
+        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice, addsExtra):
             return InjectionBreakdown(
                 weightGrams: weightGrams,
                 cycleTimeSeconds: cycleTimeSeconds,
                 cavities: cavities,
                 material: material,
                 costPerDay: costPerDay,
-                materialPrice: materialPrice
+                materialPrice: materialPrice,
+                addsExtra: addsExtra
             ).totalPartCost
 
-        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, _):
+        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, multiplier, divider, _):
             return CartonBreakdown(
                 unitPrice: unitPrice,
                 pcsPerCarton: pcsPerCarton,
                 cubicMetres: cubicMetres,
-                ratePerCubicMetre: ratePerCubicMetre
-            ).totalCost
+                ratePerCubicMetre: ratePerCubicMetre,
+                multiplier: multiplier,
+                divider: divider
+            ).finalTotalCost
 
         case let .perTable(costPerTable, pcsPerTable):
             guard pcsPerTable > 0 else { return 0 }
             return costPerTable / pcsPerTable
+
+        case let .perCarton(costPerCarton, pcsPerCarton, _):
+            guard pcsPerCarton > 0 else { return 0 }
+            return costPerCarton / pcsPerCarton
+
+        case let .localPurchase(amount, _, divider, multiplier):
+            // At or below zero in either box reads as 1: a slip should not
+            // cost the item at nothing, or at infinity.
+            let down = divider > 0 ? divider : 1
+            let up = multiplier > 0 ? multiplier : 1
+            return amount / down * up
 
         case let .flat(amount):
             return amount
@@ -130,12 +176,24 @@ enum CostDetails: Codable, Hashable {
     /// Short description of the inputs, shown under the item name.
     var summary: String {
         switch self {
-        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
-            return "\(weightGrams.compact) g \(material.rawValue)\(materialPrice.origin) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
-        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, _):
-            return "\(unitPrice.value.rupiah)/pc\(unitPrice.origin) · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
+        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, _, addsExtra):
+            let extra = addsExtra ? " +3%" : ""
+            return "\(weightGrams.compact) g \(material.rawValue)\(extra) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
+        case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, multiplier, divider, _):
+            let carton = "\(unitPrice.value.rupiah)/pc\(unitPrice.origin) · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
+            // Only worth saying when it actually changes the figure.
+            guard multiplier != 1 || divider != 1 else { return carton }
+            return carton + " · ×\(multiplier.compact) ÷\(divider.compact)"
         case let .perTable(costPerTable, pcsPerTable):
             return "\(costPerTable.rupiah)/table · \(pcsPerTable.compact) pcs/table"
+        case let .perCarton(costPerCarton, pcsPerCarton, note):
+            let packing = "\(costPerCarton.rupiah)/ctn · \(pcsPerCarton.compact) pcs/ctn"
+            let trimmed = note.trimmingCharacters(in: .whitespaces)
+            return trimmed.isEmpty ? packing : "\(packing) · \(trimmed)"
+        case let .localPurchase(_, kind, divider, multiplier):
+            // Only worth saying when it actually changes the figure.
+            guard divider != 1 || multiplier != 1 else { return kind.rawValue }
+            return "\(kind.rawValue) · ÷\(divider.compact) ×\(multiplier.compact)"
         case .flat:
             return ""
         }
@@ -152,7 +210,7 @@ struct CostItem: Identifiable, Codable, Hashable {
 
     /// What an imported item is, when it is one.
     var importKind: ImportKind? {
-        if case let .cartoned(_, _, _, _, kind) = details { return kind }
+        if case let .cartoned(_, _, _, _, _, _, kind) = details { return kind }
         return nil
     }
 
@@ -177,6 +235,21 @@ struct CostItem: Identifiable, Codable, Hashable {
 }
 
 extension Double {
+    /// Reads a number as it was typed. A separator that repeats is grouping,
+    /// so "3.500.000" is three and a half million; a single one is a decimal
+    /// point, so "1,5" and "1.5" both read as 1.5.
+    init?(costingInput text: String) {
+        var cleaned = text.trimmingCharacters(in: .whitespaces)
+        guard !cleaned.isEmpty else { return nil }
+
+        for separator in [".", ","] where cleaned.components(separatedBy: separator).count > 2 {
+            cleaned = cleaned.replacingOccurrences(of: separator, with: "")
+        }
+        cleaned = cleaned.replacingOccurrences(of: ",", with: ".")
+        guard let value = Double(cleaned) else { return nil }
+        self = value
+    }
+
     /// Rupiah, using Indonesian separators.
     var rupiah: String {
         "Rp " + formatted(
@@ -189,6 +262,11 @@ extension Double {
     /// Plain number with trailing zeroes dropped.
     var compact: String {
         formatted(.number.precision(.fractionLength(0...2)))
+    }
+
+    /// A fraction as a percentage: 0.2 reads as 20%.
+    var percent: String {
+        formatted(.percent.precision(.fractionLength(0...1)))
     }
 
     /// Digits only, for prefilling a field. Grouping separators are left out

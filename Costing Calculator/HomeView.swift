@@ -20,6 +20,10 @@ struct HomeView: View {
     /// Whether the 7.5% lain-lain is added to the costing being worked on.
     @State private var includesMiscellaneous = true
 
+    /// Stops an empty state being written over good data before the saved
+    /// state has been read back in.
+    @State private var hasLoaded = false
+
     private var subtotal: Double { items.subtotal }
 
     private var miscellaneous: Double {
@@ -27,6 +31,15 @@ struct HomeView: View {
     }
 
     private var grandTotal: Double { subtotal + miscellaneous }
+
+    /// Everything worth keeping, gathered so one change watcher covers it all.
+    private var state: CostingState {
+        CostingState(
+            items: items,
+            savedProducts: savedProducts,
+            includesMiscellaneous: includesMiscellaneous
+        )
+    }
 
     var body: some View {
         NavigationStack(path: $path) {
@@ -95,15 +108,32 @@ struct HomeView: View {
                 }
             }
             .navigationDestination(for: SavedProductsRoute.self) { _ in
-                SavedProductsView(products: savedProducts)
+                SavedProductsView(products: $savedProducts)
             }
             .navigationDestination(for: SavedProduct.ID.self) { id in
                 if let index = savedProducts.firstIndex(where: { $0.id == id }) {
                     SavedProductDetailView(product: $savedProducts[index])
                 }
             }
+            .navigationDestination(for: SellingPriceRoute.self) { route in
+                if let index = savedProducts.firstIndex(where: { $0.id == route.productID }) {
+                    SellingPriceView(product: $savedProducts[index])
+                }
+            }
             .navigationDestination(for: FinalTotalRoute.self) { _ in
                 FinalTotalView(products: savedProducts)
+            }
+            .task {
+                guard !hasLoaded else { return }
+                let saved = CostingStore.load()
+                items = saved.items
+                savedProducts = saved.savedProducts
+                includesMiscellaneous = saved.includesMiscellaneous
+                hasLoaded = true
+            }
+            .onChange(of: state) { _, newState in
+                guard hasLoaded else { return }
+                CostingStore.save(newState)
             }
             .safeAreaInset(edge: .bottom) {
                 if !items.isEmpty {

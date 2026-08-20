@@ -17,19 +17,28 @@ enum CostRates {
     static let defaultFreightPerCubicMetre: Double = 3_500_000
     /// Miscellaneous is added on top of every other cost.
     static let miscellaneousRate: Double = 0.075
+    /// Added to an injection part's material cost when the form's box is
+    /// ticked. Left off unless it is asked for.
+    static let materialExtraRate: Double = 0.03
 }
 
 enum MouldingMaterial: String, CaseIterable, Identifiable, Codable {
     case pp = "PP"
     case abs = "ABS"
+    case asResin = "AS"
+    case ps = "PS"
+    case pvc = "PVC"
 
     var id: String { rawValue }
 
-    /// Material price per kilogram.
-    var ratePerKg: Double {
+    /// The rate the form starts from, for the materials that have a standing
+    /// one. The rest are priced by hand: their price is the thing that moves,
+    /// and a stale default costs more than an empty field does.
+    var defaultRatePerKg: Double? {
         switch self {
         case .pp: return 28_000
         case .abs: return 30_000
+        case .asResin, .ps, .pvc: return nil
         }
     }
 }
@@ -44,9 +53,23 @@ enum ImportKind: String, CaseIterable, Identifiable, Hashable, Codable {
     var id: String { rawValue }
 }
 
+/// What was bought locally. Written as it reads, since capitalising a raw
+/// value would turn OPP into Opp.
+enum LocalPurchaseKind: String, CaseIterable, Identifiable, Hashable, Codable {
+    case carton = "Carton"
+    case plasticBag = "Plastic Bag"
+    case opp = "OPP"
+    case pvc = "PVC"
+    case plastikRoll = "Plastik Roll"
+    case sticker = "Sticker"
+
+    var id: String { rawValue }
+}
+
 enum CostCategory: String, CaseIterable, Identifiable, Hashable, Codable {
     case injectionPart = "INJECTION PART"
     case importItem = "IMPORT"
+    case purchaseLocal = "PURCHASE LOCAL"
     case uv = "UV"
     case spray = "SPRAY"
     case padPrint = "PAD PRINT"

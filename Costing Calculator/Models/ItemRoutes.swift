@@ -18,6 +18,11 @@ struct ChooseCategoryRoute: Hashable {
     let target: ItemTarget
 }
 
+/// Price a finished costing.
+struct SellingPriceRoute: Hashable {
+    let productID: UUID
+}
+
 /// Fill in an item. `itemID` is nil when adding, set when editing.
 struct ItemFormRoute: Hashable {
     let target: ItemTarget
