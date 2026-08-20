@@ -17,6 +17,9 @@ enum CostRates {
     static let defaultFreightPerCubicMetre: Double = 3_500_000
     /// Miscellaneous is added on top of every other cost.
     static let miscellaneousRate: Double = 0.075
+    /// Added to an injection part's material cost when the form's box is
+    /// ticked. Left off unless it is asked for.
+    static let materialExtraRate: Double = 0.03
 }
 
 enum MouldingMaterial: String, CaseIterable, Identifiable, Codable {

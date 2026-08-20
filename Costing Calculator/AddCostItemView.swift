@@ -24,6 +24,8 @@ struct AddCostItemView: View {
     /// The rate per kilo in Rupiah, entered by hand. Starts from the
     /// material's standing rate where it has one.
     @State private var materialRupiah: String
+    /// Adds 3% on top of the material cost.
+    @State private var addsMaterialExtra: Bool
 
     // IMPORT
     @State private var importKind: ImportKind
@@ -72,10 +74,11 @@ struct AddCostItemView: View {
         var multiply = "1", divide = "1"
         var unitYuan = "", unitRate = ""
         var materialKg = MouldingMaterial.pp.defaultRatePerKg?.plainDigits ?? ""
+        var materialExtra = false
         var kind = ImportKind.sparePart
 
         switch existing?.details {
-        case let .injection(w, c, cav, m, day, price):
+        case let .injection(w, c, cav, m, day, price, extra):
             weight = w.plainDigits
             cycle = c.plainDigits
             cavityCount = cav.plainDigits
@@ -85,6 +88,7 @@ struct AddCostItemView: View {
             // the rate could still be given in Yuan reopens at the rate it
             // was actually worked out from.
             materialKg = price.value > 0 ? price.value.plainDigits : ""
+            materialExtra = extra
         case let .cartoned(price, pcs, m3, perM3, mult, div, existingKind):
             cost = price.rupiah.plainDigits
             if price.rmb > 0 { unitYuan = price.rmb.plainDigits }
@@ -119,6 +123,7 @@ struct AddCostItemView: View {
         _cavities = State(initialValue: cavityCount)
         _material = State(initialValue: mouldingMaterial)
         _materialRupiah = State(initialValue: materialKg)
+        _addsMaterialExtra = State(initialValue: materialExtra)
         _costPerDay = State(initialValue: perDay)
         _importKind = State(initialValue: kind)
         _unitCost = State(initialValue: cost)
@@ -224,6 +229,7 @@ struct AddCostItemView: View {
                     materialRupiah = chosen.defaultRatePerKg?.plainDigits ?? ""
                 }
                 numberField("Price (Rp / kg)", text: $materialRupiah)
+                Toggle("Add 3%", isOn: $addsMaterialExtra)
                 totalRow("Sub Total", value: materialSubtotal)
             } header: {
                 Text("Material")
@@ -331,7 +337,8 @@ struct AddCostItemView: View {
             cavities: 0,
             material: material,
             costPerDay: costPerDay,
-            materialPrice: materialPrice
+            materialPrice: materialPrice,
+            addsExtra: addsMaterialExtra
         ).materialCost
     }
 
@@ -345,10 +352,10 @@ struct AddCostItemView: View {
         guard let weight = parse(weightGrams), materialPrice.value > 0 else {
             return "Weight in kilos × the rate per kilo = material cost."
         }
-        return """
-        \(weight.compact) g ÷ 1.000 × \(materialPrice.value.rupiah) \
-        = \((weight / 1_000 * materialPrice.value).rupiah).
-        """
+        let base = weight / 1_000 * materialPrice.value
+        let sum = "\(weight.compact) g ÷ 1.000 × \(materialPrice.value.rupiah) = \(base.rupiah)"
+        guard addsMaterialExtra else { return sum + "." }
+        return sum + ", + 3% = \((base * (1 + CostRates.materialExtraRate)).rupiah)."
     }
 
     /// The cost per piece, in Rupiah or converted from RMB.
@@ -464,7 +471,8 @@ struct AddCostItemView: View {
             cavities: cavityCount,
             material: material,
             costPerDay: costPerDay,
-            materialPrice: materialPrice
+            materialPrice: materialPrice,
+            addsExtra: addsMaterialExtra
         )
     }
 
@@ -505,7 +513,8 @@ struct AddCostItemView: View {
                 cavities: cavityCount,
                 material: material,
                 costPerDay: costPerDay,
-                materialPrice: materialPrice
+                materialPrice: materialPrice,
+                addsExtra: addsMaterialExtra
             )
 
         case .importItem:

@@ -17,14 +17,18 @@ struct InjectionBreakdown {
     /// standing rate where it has one. Can be given in RMB with an exchange
     /// rate instead.
     var materialPrice: PriceInput
+    /// Adds 3% on top of the material cost when ticked on the form.
+    var addsExtra: Bool = false
 
     var ratePerKg: Double {
         materialPrice.value
     }
 
-    /// Weight converted to kilos at the material's rate.
+    /// Weight converted to kilos at the material's rate, with the 3% on top
+    /// when it is being added.
     var materialCost: Double {
-        (weightGrams / 1_000) * ratePerKg
+        let base = (weightGrams / 1_000) * ratePerKg
+        return addsExtra ? base * (1 + CostRates.materialExtraRate) : base
     }
 
     /// Cycles the machine completes in a day.
@@ -96,7 +100,8 @@ enum CostDetails: Codable, Hashable {
         cavities: Double,
         material: MouldingMaterial,
         costPerDay: Double,
-        materialPrice: PriceInput
+        materialPrice: PriceInput,
+        addsExtra: Bool
     )
     /// Unit cost plus the carton's share of freight. IMPORT, of any kind.
     case cartoned(
@@ -119,14 +124,15 @@ enum CostDetails: Codable, Hashable {
     /// Cost of one piece, in Rupiah.
     var subtotal: Double {
         switch self {
-        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
+        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice, addsExtra):
             return InjectionBreakdown(
                 weightGrams: weightGrams,
                 cycleTimeSeconds: cycleTimeSeconds,
                 cavities: cavities,
                 material: material,
                 costPerDay: costPerDay,
-                materialPrice: materialPrice
+                materialPrice: materialPrice,
+                addsExtra: addsExtra
             ).totalPartCost
 
         case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, multiplier, divider, _):
@@ -155,8 +161,9 @@ enum CostDetails: Codable, Hashable {
     /// Short description of the inputs, shown under the item name.
     var summary: String {
         switch self {
-        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, materialPrice):
-            return "\(weightGrams.compact) g \(material.rawValue) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
+        case let .injection(weightGrams, cycleTimeSeconds, cavities, material, costPerDay, _, addsExtra):
+            let extra = addsExtra ? " +3%" : ""
+            return "\(weightGrams.compact) g \(material.rawValue)\(extra) · \(cycleTimeSeconds.compact) s · \(cavities.compact) cav · \(costPerDay.rupiah)/day"
         case let .cartoned(unitPrice, pcsPerCarton, cubicMetres, ratePerCubicMetre, multiplier, divider, _):
             let carton = "\(unitPrice.value.rupiah)/pc\(unitPrice.origin) · \(pcsPerCarton.compact) pcs/ctn · \(cubicMetres.compact) m³ · \(ratePerCubicMetre.rupiah)/m³"
             // Only worth saying when it actually changes the figure.
